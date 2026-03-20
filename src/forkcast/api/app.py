@@ -35,4 +35,7 @@ def create_app() -> FastAPI:
     from forkcast.api.domain_routes import router as domain_router
     app.include_router(domain_router)
 
+    from forkcast.api.project_routes import router as project_router
+    app.include_router(project_router)
+
     return app

@@ -23,7 +23,11 @@ def init_db(db_path: Path) -> None:
 
 @contextmanager
 def get_db(db_path: Path) -> Generator[sqlite3.Connection, None, None]:
-    """Context manager that yields a connection, commits on success, rolls back on error."""
+    """Context manager that yields a connection, commits on success, rolls back on error.
+
+    Lazily initializes the database schema on first use.
+    """
+    init_db(db_path)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
