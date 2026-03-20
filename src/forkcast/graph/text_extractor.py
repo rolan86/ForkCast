@@ -1,8 +1,11 @@
 """Extract text content from uploaded files."""
 
+import logging
 from pathlib import Path
 
 from forkcast.db.connection import get_db
+
+logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".text", ".markdown", ".pdf"}
 
@@ -30,9 +33,14 @@ def _extract_pdf(file_path: Path) -> str:
 
 
 def extract_texts_from_files(file_paths: list[Path]) -> dict[str, str]:
-    """Extract text from multiple files. Returns {filename: text_content}."""
+    """Extract text from multiple files. Returns {filename: text_content}.
+
+    Raises ValueError if duplicate filenames are detected.
+    """
     results = {}
     for fp in file_paths:
+        if fp.name in results:
+            raise ValueError(f"Duplicate filename '{fp.name}' in file list")
         results[fp.name] = extract_text(fp)
     return results
 
@@ -41,8 +49,14 @@ def store_text_content(db_path: Path, project_id: str, texts: dict[str, str]) ->
     """Update project_files.text_content for extracted texts."""
     with get_db(db_path) as conn:
         for filename, content in texts.items():
-            conn.execute(
+            cursor = conn.execute(
                 "UPDATE project_files SET text_content = ? "
                 "WHERE project_id = ? AND filename = ?",
                 (content, project_id, filename),
             )
+            if cursor.rowcount == 0:
+                logger.warning(
+                    "No project_file row for project '%s', filename '%s'",
+                    project_id,
+                    filename,
+                )
