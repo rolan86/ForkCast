@@ -1,10 +1,17 @@
 import os
 import sqlite3
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+
+# Workaround: uv sets macOS hidden flag on .pth files, preventing
+# editable installs from being discovered. Ensure src/ is on sys.path.
+_src = str(Path(__file__).resolve().parent.parent / "src")
+if _src not in sys.path:
+    sys.path.insert(0, _src)
 
 
 @pytest.fixture
