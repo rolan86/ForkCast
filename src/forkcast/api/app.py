@@ -41,4 +41,7 @@ def create_app() -> FastAPI:
     from forkcast.api.graph_routes import router as graph_router
     app.include_router(graph_router)
 
+    from forkcast.api.simulation_routes import router as simulation_router
+    app.include_router(simulation_router)
+
     return app
