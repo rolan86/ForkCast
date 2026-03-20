@@ -10,6 +10,7 @@ dependencies = [
     "typer[all]>=0.15",
     "networkx>=3.4",
     "chromadb>=0.6",
+    "sentence-transformers>=3.0",
     "pyyaml>=6.0",
     "python-dotenv>=1.0",
     "python-multipart>=0.0.18",
