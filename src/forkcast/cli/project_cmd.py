@@ -10,6 +10,8 @@ import typer
 
 from forkcast.config import get_settings
 from forkcast.db.connection import get_db
+from forkcast.graph.pipeline import build_graph_pipeline
+from forkcast.llm.client import ClaudeClient
 
 project_app = typer.Typer(help="Manage projects", no_args_is_help=True)
 
@@ -113,3 +115,49 @@ def project_show(project_id: str):
         typer.echo(f"\nFiles ({len(files)}):")
         for f in files:
             typer.echo(f"  - {f['filename']} ({f['size']} bytes)")
+
+
+@project_app.command("build-graph")
+def project_build_graph(project_id: str):
+    """Build a knowledge graph from project documents."""
+    settings = get_settings()
+
+    with get_db(settings.db_path) as conn:
+        project = conn.execute(
+            "SELECT id, status FROM projects WHERE id = ?", (project_id,)
+        ).fetchone()
+
+    if project is None:
+        typer.echo(f"Project not found: {project_id}", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Building graph for project {project_id}...")
+    client = ClaudeClient(api_key=settings.anthropic_api_key)
+
+    def on_progress(stage: str, **kwargs):
+        current = kwargs.get("current", "")
+        total = kwargs.get("total", "")
+        if current and total:
+            typer.echo(f"  [{stage}] {current}/{total}")
+        else:
+            typer.echo(f"  [{stage}]")
+
+    try:
+        result = build_graph_pipeline(
+            db_path=settings.db_path,
+            data_dir=settings.data_dir,
+            project_id=project_id,
+            client=client,
+            domains_dir=settings.domains_dir,
+            on_progress=on_progress,
+        )
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"\nGraph built successfully!")
+    typer.echo(f"  Graph ID:   {result['graph_id']}")
+    typer.echo(f"  Nodes:      {result['node_count']}")
+    typer.echo(f"  Edges:      {result['edge_count']}")
+    typer.echo(f"  Entities:   {result['entities_extracted']}")
+    typer.echo(f"  Chunks:     {result['chunks_processed']}")
