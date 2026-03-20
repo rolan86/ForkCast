@@ -17,6 +17,7 @@ dependencies = [
     "jinja2>=3.1",
     "httpx>=0.28",
     "pypdf>=6.9.1",
+    "sse-starlette>=3.3.3",
 ]
 
 [project.scripts]
