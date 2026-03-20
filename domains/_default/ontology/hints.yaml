@@ -1,0 +1,14 @@
+# Default ontology extraction hints
+max_entity_types: 10
+required_fallbacks:
+  - Person
+  - Organization
+
+# General-purpose suggested types (domain plugins override these)
+suggested_types:
+  - name: Person
+    description: An individual human actor
+  - name: Organization
+    description: A company, institution, government body, or group
+  - name: Community
+    description: An informal group with shared interests or identity
