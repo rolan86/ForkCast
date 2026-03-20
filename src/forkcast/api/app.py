@@ -32,6 +32,7 @@ def create_app() -> FastAPI:
     async def health():
         return success({"status": "ok", "service": "ForkCast", "version": __version__})
 
-    # Routers will be included here as they're built in later tasks
+    from forkcast.api.domain_routes import router as domain_router
+    app.include_router(domain_router)
 
     return app
