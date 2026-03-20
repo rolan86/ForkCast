@@ -77,3 +77,14 @@ class PrepareResult:
     profiles_path: str
     config_generated: bool
     tokens_used: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
+class RunResult:
+    """Result of running a simulation."""
+
+    simulation_id: str
+    actions_count: int
+    total_rounds: int
+    actions_path: str
+    tokens_used: dict[str, int] = field(default_factory=dict)
