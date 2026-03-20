@@ -32,3 +32,14 @@ Thumbs.db
 
 # Superpowers
 .superpowers/
+
+# Python virtualenv
+.venv/
+
+# Test / coverage
+.pytest_cache/
+htmlcov/
+.coverage
+
+# uv lock
+uv.lock
