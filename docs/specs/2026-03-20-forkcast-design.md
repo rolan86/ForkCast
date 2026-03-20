@@ -131,11 +131,11 @@ Everything else: local, in-process or subprocess
 | Database | SQLite | Zero setup, queryable, single file |
 | Graph Storage | NetworkX | In-memory graph, JSON serializable |
 | Vector Search | ChromaDB (local) | Local embeddings, SQLite-backed |
-| Embeddings | sentence-transformers | Local model (all-MiniLM-L6-v2), runs on CPU |
+| Embeddings | ChromaDB SentenceTransformerEmbeddingFunction | all-MiniLM-L6-v2 model, 384 dims, runs on CPU |
 | LLM | Claude API (Anthropic SDK) | Native tool use, extended thinking |
 | Simulation | OASIS (subprocess) + Claude (in-process) | Selectable per domain/simulation |
 | Real-time | Server-Sent Events | Single persistent connection per operation |
-| CLI | Click or Typer | Full workflow from terminal |
+| CLI | Typer | Full workflow from terminal (wraps Click, type-hint driven) |
 | Package Manager | uv | Fast, modern Python package management |
 
 ### What's NOT in the Stack
@@ -216,6 +216,15 @@ Three ways to create a domain:
 2. **API endpoint:** `POST /api/domains` — for future UI wizard
 3. **LLM-assisted:** `forkcast domain create --from-description "Ad copy testing for B2B SaaS products targeting enterprise buyers"` — Claude generates the full domain structure from a natural language description
 
+### Plugin Loading & Fallback
+
+Resolution order for each key in `manifest.yaml.prompts`:
+1. Load from the active domain's directory first
+2. If file is missing, fall back to `_default/` domain
+3. This is **file-level fallback** — no content merging. A domain's `persona.md` completely replaces the default, it does not extend it.
+
+If a domain omits `ontology/hints.yaml`, the `_default/` hints are used. If a domain omits the entire `simulation/` directory, platform defaults from `_default/` apply.
+
 ---
 
 ## 5. Data Layer
@@ -226,7 +235,8 @@ Three ways to create a domain:
 |-------|---------|------------|
 | `projects` | Uploaded docs + ontology | id, domain, name, status, ontology_json, requirement, created_at |
 | `project_files` | Uploaded file references | id, project_id, filename, path, text_content, size |
-| `simulations` | Simulation instances | id, project_id, graph_id, status, engine_type, platforms, config_json |
+| `graphs` | Graph metadata | id, project_id, status, node_count, edge_count, file_path, created_at |
+| `simulations` | Simulation instances | id, project_id, graph_id (FK→graphs), status, engine_type, platforms, config_json |
 | `simulation_actions` | Agent actions log | id, simulation_id, round, agent_id, action_type, content, platform, timestamp |
 | `reports` | Generated reports | id, simulation_id, status, outline_json, content_markdown, created_at |
 | `chat_history` | Interaction logs | id, report_id, role, message, tool_calls_json, timestamp |
@@ -249,6 +259,10 @@ data/
 ```
 
 Structured queryable data lives in SQLite. Large serialized data (graphs, profiles, simulation artifacts) stays as files.
+
+### Schema Management
+
+For v1, use "create if not exists" with a `schema_version` integer stored in a `meta` table. On startup, check version and run any pending migrations sequentially. Keep migrations simple — additive schema changes only where possible.
 
 ---
 
@@ -321,6 +335,13 @@ Entity extraction is synchronous via Claude tool_use — no async polling or wai
 
 Agent actions are converted to natural language, embedded into ChromaDB, and new edges/nodes added to the NetworkX graph. Batched (5 actions per update) to minimize overhead.
 
+### Graph Persistence Strategy
+
+- `graph.json` is flushed to disk after every batch update (every 5 actions) during simulation
+- On graph build completion, a final flush + integrity check (node/edge counts match DB metadata)
+- On crash recovery: reload `graph.json` from last flush. Any in-flight batch updates since the last flush are lost (acceptable — they can be re-derived from `actions.jsonl`)
+- ChromaDB auto-persists to its local SQLite store
+
 ---
 
 ## 7. Simulation Engines
@@ -332,7 +353,7 @@ Both engines produce the same action format:
 ```json
 {
   "round": 1,
-  "timestamp": "2024-01-15T10:30:00Z",
+  "timestamp": "2026-03-20T10:30:00Z",
   "agent_id": 3,
   "agent_name": "user3",
   "platform": "reddit",
@@ -361,6 +382,27 @@ Both engines produce the same action format:
 - Sequential agent processing (vs OASIS parallel)
 - Higher quality reasoning per agent, higher API cost
 
+**Claude Engine In-Memory State:**
+
+The Claude engine must maintain a simulated social platform state:
+
+```
+SimulationState:
+  posts: list          # All posts (id, author_id, content, timestamp, likes, dislikes)
+  comments: list       # Comments on posts (id, post_id, author_id, content, timestamp)
+  social_graph: dict   # Follower/following relationships per agent
+  mutes: dict          # Mute relationships per agent
+  feed_algorithm:      # Per-platform feed ranking (recency, popularity, relevance weights)
+
+Per round:
+  1. Build each active agent's "feed" (recent posts ranked by platform algorithm)
+  2. Send feed + persona to Claude → Claude returns action via tool_use
+  3. Apply action to state (add post, increment likes, add follower edge, etc.)
+  4. Write action to JSONL log
+```
+
+This state is ephemeral (exists only during simulation). It is reconstructable from the `actions.jsonl` log if needed.
+
 ### Engine Selection
 
 - Default set in domain `manifest.yaml`: `sim_engine: oasis`
@@ -370,6 +412,41 @@ Both engines produce the same action format:
 ### Simulation Platforms
 
 Dual Twitter + Reddit simulation supported. Future versions will add real-world data integration — ingesting actual Reddit/Twitter data to blend with simulated data in the analysis pipeline.
+
+### Agent Profile Format
+
+Canonical profile format is JSON, stored in `profiles/agents.json`:
+
+```json
+[
+  {
+    "agent_id": 0,
+    "name": "display_name",
+    "username": "username",
+    "bio": "Short bio",
+    "persona": "Detailed persona text",
+    "age": 28,
+    "gender": "female",
+    "profession": "Data Scientist",
+    "interests": ["AI", "ethics"],
+    "entity_type": "Researcher",
+    "entity_source": "Dr. Jane Smith"
+  }
+]
+```
+
+When OASIS is the engine, an adapter converts this canonical format to OASIS-specific formats (CSV for Twitter, JSON for Reddit) at simulation start time. The Claude engine consumes the canonical format directly.
+
+### Error Recovery
+
+| Pipeline | Checkpoint | Recovery |
+|----------|-----------|----------|
+| Graph build | Per-chunk. Completed chunks stored in graph immediately. | Restart skips already-extracted chunks (deduplicated by entity name+type). |
+| Simulation prep | Profiles saved incrementally to `agents.json`. Config saved on completion. | Restart regenerates missing profiles only. If config failed, regenerate config. |
+| Simulation run | Every action written to `actions.jsonl` immediately. | Cannot resume mid-simulation. Restart from round 1 (actions.jsonl is overwritten). |
+| Report generation | Each section saved as it completes. | Restart regenerates from the first incomplete section. Completed sections are reused. |
+
+All long-running operations emit an `error` SSE event on failure with a human-readable message. The CLI displays the error and exits with a non-zero code.
 
 ---
 
@@ -453,7 +530,18 @@ Claude decides report structure, sections, and narrative arc. Domain config prov
 | Chat | `POST /api/chat/report`, `POST /api/chat/agent` |
 | System | `GET /health`, `GET /api/usage` |
 
-### SSE Streams (Replace All Polling)
+### Endpoint Semantics: POST Triggers, SSE Monitors
+
+Long-running operations use a two-endpoint pattern:
+
+1. **POST triggers the operation** — returns immediately with a status/job ID
+2. **GET /stream monitors progress** — SSE stream emits events until completion
+
+Example flow:
+- `POST /api/projects/{id}/build-graph` → `{"success": true, "data": {"status": "building"}}`
+- `GET /api/projects/{id}/build-graph/stream` → SSE events for progress, completion, or error
+
+### SSE Streams
 
 ```
 GET /api/projects/{id}/build-graph/stream
