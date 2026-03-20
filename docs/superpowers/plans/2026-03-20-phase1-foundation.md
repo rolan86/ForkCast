@@ -6,7 +6,7 @@
 
 **Architecture:** Layered monolith. Single FastAPI app with clean internal layers. Domain plugins are file-based directories loaded at startup. SQLite for persistence. Typer CLI connects to the API server.
 
-**Tech Stack:** Python 3.12, FastAPI, SQLite (stdlib), NetworkX, ChromaDB, Anthropic SDK, Typer, uv
+**Tech Stack:** Python 3.11+, FastAPI, SQLite (stdlib), NetworkX, ChromaDB, Anthropic SDK, Typer, uv
 
 **Spec:** `docs/specs/2026-03-20-forkcast-design.md`
 
@@ -89,7 +89,7 @@ forkcast/
 name = "forkcast"
 version = "0.1.0"
 description = "Collective intelligence simulation platform"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",

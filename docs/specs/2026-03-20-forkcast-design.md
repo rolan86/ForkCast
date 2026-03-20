@@ -126,7 +126,7 @@ Everything else: local, in-process or subprocess
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| Runtime | Python 3.12 | Latest stable |
+| Runtime | Python 3.11+ | Broad dependency compatibility |
 | Web Framework | FastAPI | Native async, auto OpenAPI docs |
 | Database | SQLite | Zero setup, queryable, single file |
 | Graph Storage | NetworkX | In-memory graph, JSON serializable |
