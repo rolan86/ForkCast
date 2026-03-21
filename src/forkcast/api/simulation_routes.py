@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import secrets
+import threading
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
@@ -15,6 +16,7 @@ from forkcast.config import get_settings
 from forkcast.db.connection import get_db
 from forkcast.llm.client import ClaudeClient
 from forkcast.simulation.prepare import prepare_simulation
+from forkcast.simulation.runner import run_simulation
 
 logger = logging.getLogger(__name__)
 
@@ -202,3 +204,152 @@ async def stream_prepare(simulation_id: str, request: Request):
             yield {"event": event.get("stage", "progress"), "data": json.dumps(event)}
 
     return EventSourceResponse(event_generator())
+
+
+# --- Run simulation endpoints ---
+
+# Per-simulation run queues and stop events
+_run_queues: dict[str, asyncio.Queue] = {}
+_stop_events: dict[str, threading.Event] = {}
+
+
+@router.post("/{simulation_id}/start")
+async def start_simulation(simulation_id: str):
+    """Start running a prepared simulation as a background task."""
+    settings = get_settings()
+
+    with get_db(settings.db_path) as conn:
+        sim = conn.execute(
+            "SELECT id, status FROM simulations WHERE id = ?", (simulation_id,)
+        ).fetchone()
+
+    if sim is None:
+        return error(f"Simulation not found: {simulation_id}", status_code=404)
+    if sim["status"] != "prepared":
+        return error(f"Simulation must be in 'prepared' status to start (current: {sim['status']})", status_code=400)
+
+    queue: asyncio.Queue = asyncio.Queue()
+    _run_queues[simulation_id] = queue
+    stop_event = threading.Event()
+    _stop_events[simulation_id] = stop_event
+    loop = asyncio.get_event_loop()
+
+    client = ClaudeClient(api_key=settings.anthropic_api_key)
+
+    def on_progress(stage: str, **kwargs):
+        event = {"stage": stage, **kwargs}
+        loop.call_soon_threadsafe(queue.put_nowait, event)
+
+    def _run():
+        return run_simulation(
+            db_path=settings.db_path,
+            data_dir=settings.data_dir,
+            simulation_id=simulation_id,
+            client=client,
+            domains_dir=settings.domains_dir,
+            on_progress=on_progress,
+            stop_event=stop_event,
+        )
+
+    async def _background_run():
+        try:
+            result = await asyncio.to_thread(_run)
+            queue.put_nowait({
+                "stage": "result",
+                "simulation_id": result.simulation_id,
+                "actions_count": result.actions_count,
+                "total_rounds": result.total_rounds,
+                "tokens_used": result.tokens_used,
+            })
+        except Exception as e:
+            logger.exception(f"Simulation run failed for {simulation_id}")
+            queue.put_nowait({"stage": "error", "message": str(e)})
+        finally:
+            queue.put_nowait(None)
+            _stop_events.pop(simulation_id, None)
+
+    asyncio.create_task(_background_run())
+
+    return success({"status": "running", "simulation_id": simulation_id})
+
+
+@router.post("/{simulation_id}/stop")
+async def stop_simulation(simulation_id: str):
+    """Stop a running simulation gracefully via stop_event."""
+    settings = get_settings()
+
+    with get_db(settings.db_path) as conn:
+        sim = conn.execute(
+            "SELECT id, status FROM simulations WHERE id = ?", (simulation_id,)
+        ).fetchone()
+
+    if sim is None:
+        return error(f"Simulation not found: {simulation_id}", status_code=404)
+
+    stop_event = _stop_events.get(simulation_id)
+    if stop_event is None:
+        return error("No running simulation to stop", status_code=400)
+
+    stop_event.set()
+    return success({"status": "stopping", "simulation_id": simulation_id})
+
+
+@router.get("/{simulation_id}/run/stream")
+async def stream_run(simulation_id: str, request: Request):
+    """SSE stream for simulation run progress and actions."""
+    queue = _run_queues.get(simulation_id)
+    if queue is None:
+        return error("No run job active for this simulation", status_code=404)
+
+    async def event_generator():
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=30.0)
+            except asyncio.TimeoutError:
+                yield {"event": "ping", "data": "{}"}
+                continue
+
+            if event is None:
+                yield {"event": "complete", "data": "{}"}
+                _run_queues.pop(simulation_id, None)
+                break
+
+            yield {"event": event.get("stage", "progress"), "data": json.dumps(event)}
+
+    return EventSourceResponse(event_generator())
+
+
+@router.get("/{simulation_id}/actions")
+async def get_simulation_actions(simulation_id: str):
+    """Get all recorded actions for a simulation."""
+    settings = get_settings()
+
+    with get_db(settings.db_path) as conn:
+        sim = conn.execute(
+            "SELECT id FROM simulations WHERE id = ?", (simulation_id,)
+        ).fetchone()
+        if sim is None:
+            return error(f"Simulation not found: {simulation_id}", status_code=404)
+
+        rows = conn.execute(
+            "SELECT round, agent_id, agent_name, action_type, content, platform, timestamp "
+            "FROM simulation_actions WHERE simulation_id = ? ORDER BY id",
+            (simulation_id,),
+        ).fetchall()
+
+    actions = []
+    for row in rows:
+        d = dict(row)
+        if d["content"]:
+            try:
+                d["action_args"] = json.loads(d["content"])
+            except json.JSONDecodeError:
+                d["action_args"] = {"content": d["content"]}
+        else:
+            d["action_args"] = {}
+        d.pop("content", None)
+        actions.append(d)
+
+    return success(actions)
