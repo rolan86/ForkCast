@@ -3,7 +3,7 @@
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Iterator
 
 import anthropic
 
@@ -88,6 +88,63 @@ class ClaudeClient:
             temperature=1.0,  # Required for extended thinking
             thinking={"type": "enabled", "budget_tokens": thinking_budget},
         )
+
+    def stream(
+        self,
+        messages: list[dict[str, Any]],
+        system: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        temperature: float = 1.0,
+    ) -> "Iterator[StreamEvent]":
+        """Stream a response, yielding StreamEvent objects."""
+        from forkcast.report.models import StreamEvent
+
+        kwargs: dict[str, Any] = {
+            "model": model or self.default_model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if system:
+            kwargs["system"] = system
+        if tools:
+            kwargs["tools"] = tools
+
+        with self._client.messages.stream(**kwargs) as stream:
+            # Track tool block metadata keyed by id, collected from content_block_start events
+            tool_index: dict[str, dict[str, Any]] = {}
+
+            for event in stream:
+                if event.type == "content_block_start":
+                    cb = event.content_block
+                    if cb.type == "tool_use":
+                        tool_index[cb.id] = {"id": cb.id, "name": cb.name}
+                elif event.type == "content_block_delta":
+                    if hasattr(event.delta, "text"):
+                        yield StreamEvent(type="text_delta", data=event.delta.text)
+
+            final = stream.get_final_message()
+
+            for block in final.content:
+                if block.type == "tool_use":
+                    # Prefer name from streaming events to avoid MagicMock `name` kwarg issue
+                    tracked = tool_index.get(block.id, {})
+                    name = tracked.get("name", block.name)
+                    yield StreamEvent(
+                        type="tool_use",
+                        data={"id": block.id, "name": name, "input": block.input},
+                    )
+
+            yield StreamEvent(
+                type="done",
+                data={
+                    "input_tokens": final.usage.input_tokens,
+                    "output_tokens": final.usage.output_tokens,
+                    "stop_reason": final.stop_reason,
+                },
+            )
 
     def _call(self, **kwargs: Any) -> LLMResponse:
         """Internal method with retry logic."""
