@@ -42,5 +42,8 @@ docs/superpowers/
 htmlcov/
 .coverage
 
+# Evolution notes (private observations)
+evolution/
+
 # uv lock
 uv.lock
