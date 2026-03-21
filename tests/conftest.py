@@ -49,8 +49,13 @@ def tmp_domains_dir(tmp_path):
     )
 
     # Minimal prompt files
-    for name in ["ontology.md", "persona.md", "report_guidelines.md", "config_gen.md", "agent_system.md"]:
+    for name in ["ontology.md", "report_guidelines.md", "config_gen.md", "agent_system.md"]:
         (prompts / name).write_text(f"# Default {name}\n\nPlaceholder prompt.\n")
+    (prompts / "persona.md").write_text(
+        "# Default persona\n\n"
+        "Create a persona for {{ entity_name }} ({{ entity_type }}).\n"
+        "Scenario: {{ requirement }}\n"
+    )
 
     # Ontology hints
     ontology = default / "ontology"

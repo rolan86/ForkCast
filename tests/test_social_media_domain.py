@@ -101,3 +101,20 @@ class TestDomainListing:
         names = [d.name for d in domains]
         assert "_default" in names
         assert "social-media" in names
+
+
+def test_persona_template_uses_requirement(tmp_domains_dir):
+    """Persona template should render the {{ requirement }} variable."""
+    from jinja2 import Template
+
+    persona_path = tmp_domains_dir / "_default" / "prompts" / "persona.md"
+    template_text = persona_path.read_text()
+    template = Template(template_text)
+    rendered = template.render(
+        entity_name="TestEntity",
+        entity_type="Person",
+        entity_description="A test entity",
+        related_entities="None",
+        requirement="Predict social media reaction to AI regulation",
+    )
+    assert "Predict social media reaction to AI regulation" in rendered

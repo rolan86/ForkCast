@@ -21,3 +21,9 @@ Entity: {{ entity_name }}
 Type: {{ entity_type }}
 Description: {{ entity_description }}
 Related entities: {{ related_entities }}
+
+## Scenario Context
+
+The simulation is exploring: {{ requirement }}
+
+Shape the persona's perspectives and priorities around this scenario.

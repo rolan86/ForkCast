@@ -24,6 +24,12 @@ Type: {{ entity_type }}
 Description: {{ entity_description }}
 Related entities: {{ related_entities }}
 
+## Scenario Context
+
+The simulation is exploring: {{ requirement }}
+
+Use this context to shape the persona's opinions, concerns, and engagement priorities.
+
 ## Guidelines
 
 - Make the persona feel like a real Twitter user, not a character sheet
