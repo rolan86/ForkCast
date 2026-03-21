@@ -69,10 +69,9 @@ def build_graph_pipeline(
     document_summary = " ".join(t[:200] for t in texts.values())
 
     # Read domain-specific ontology prompt if available
-    try:
-        ontology_system_prompt = read_prompt(domain, "ontology")
-    except FileNotFoundError:
-        ontology_system_prompt = None
+    ontology_system_prompt = (
+        read_prompt(domain, "ontology") if "ontology" in domain.prompts else None
+    )
 
     ontology, ontology_response_tokens = generate_ontology(
         client=client,
