@@ -108,7 +108,7 @@ def test_scaffold_includes_agent_system(tmp_domains_dir):
 
     assert (result / "prompts" / "agent_system.md").exists()
     content = (result / "prompts" / "agent_system.md").read_text()
-    assert len(content) > 10  # Not empty
+    assert "{{ agent_name }}" in content
 
 
 def test_scaffold_manifest_includes_agent_system(tmp_domains_dir):
