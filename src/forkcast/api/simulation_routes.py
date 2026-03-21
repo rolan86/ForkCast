@@ -138,7 +138,7 @@ async def trigger_prepare(simulation_id: str):
     # Create a queue for this simulation's progress events
     queue: asyncio.Queue = asyncio.Queue()
     _prepare_queues[simulation_id] = queue
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     client = ClaudeClient(api_key=settings.anthropic_api_key)
 
@@ -232,7 +232,7 @@ async def start_simulation(simulation_id: str):
     _run_queues[simulation_id] = queue
     stop_event = threading.Event()
     _stop_events[simulation_id] = stop_event
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
 
     client = ClaudeClient(api_key=settings.anthropic_api_key)
 

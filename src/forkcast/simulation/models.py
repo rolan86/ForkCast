@@ -40,7 +40,7 @@ class AgentProfile:
 class SimulationConfig:
     """Generated simulation parameters."""
 
-    total_hours: int
+    total_hours: float
     minutes_per_round: int
     peak_hours: list[int]
     off_peak_hours: list[int]

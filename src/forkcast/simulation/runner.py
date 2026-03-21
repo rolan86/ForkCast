@@ -112,104 +112,114 @@ def run_simulation(
     engine_result: dict[str, Any] = {}
     total_tokens: dict[str, int] = {"input": 0, "output": 0}
     try:
-        if engine_type == "claude":
-            # Try to load agent_system prompt; fall back to a minimal default
-            try:
-                agent_system_template = read_prompt(domain, AGENT_SYSTEM_PROMPT_KEY)
-            except FileNotFoundError:
-                agent_system_template = "You are {{ agent_name }}. {{ persona }}"
+        try:
+            if engine_type == "claude":
+                # Try to load agent_system prompt; fall back to a minimal default
+                try:
+                    agent_system_template = read_prompt(domain, AGENT_SYSTEM_PROMPT_KEY)
+                except FileNotFoundError:
+                    agent_system_template = "You are {{ agent_name }}. {{ persona }}"
 
-            _progress(stage="running", engine="claude", total_rounds=0)
+                _progress(stage="running", engine="claude", total_rounds=0)
 
-            # Run once per platform
-            for platform in platforms:
-                if stop_event is not None and stop_event.is_set():
-                    break
+                # Run once per platform
+                for platform in platforms:
+                    if stop_event is not None and stop_event.is_set():
+                        break
 
-                engine = ClaudeEngine(client=client, agent_system_template=agent_system_template)
+                    engine = ClaudeEngine(client=client, agent_system_template=agent_system_template)
 
-                # Wire stop_event into on_round callback
-                round_cb = on_round
-                if stop_event is not None:
-                    def round_cb(r, t, eng=engine):
-                        if stop_event.is_set():
+                    # Wire stop_event into on_round callback
+                    round_cb = on_round
+                    if stop_event is not None:
+                        def round_cb(r, t, eng=engine):
+                            if stop_event.is_set():
+                                eng.stop()
+                            _progress(stage="round", current=r, total=t)
+
+                    engine_result = engine.run(
+                        profiles=profiles,
+                        config=config,
+                        platform=platform,
+                        on_action=on_action,
+                        on_round=round_cb,
+                    )
+                    total_tokens["input"] += engine_result.get("input_tokens", 0)
+                    total_tokens["output"] += engine_result.get("output_tokens", 0)
+
+            elif engine_type == "oasis":
+                # Deferred import -- OASIS is an optional dependency
+                from forkcast.simulation.oasis_engine import OasisEngine
+
+                _progress(stage="running", engine="oasis")
+                for platform in platforms:
+                    if stop_event is not None and stop_event.is_set():
+                        break
+
+                    oasis_engine = OasisEngine(sim_dir=sim_dir)
+                    # Wire stop_event: spawn a monitor thread that checks the event
+                    if stop_event is not None:
+                        def _oasis_stop_monitor(eng=oasis_engine):
+                            stop_event.wait()
                             eng.stop()
-                        _progress(stage="round", current=r, total=t)
 
-                engine_result = engine.run(
-                    profiles=profiles,
-                    config=config,
-                    platform=platform,
-                    on_action=on_action,
-                    on_round=round_cb,
+                        stop_thread = threading.Thread(target=_oasis_stop_monitor, daemon=True)
+                        stop_thread.start()
+                    engine_result = oasis_engine.run(
+                        profiles=profiles,
+                        config=config,
+                        platform=platform,
+                        on_action=on_action,
+                        on_round=on_round,
+                    )
+            else:
+                raise ValueError(f"Unknown engine type: {engine_type}")
+        finally:
+            actions_file.close()
+
+        # 4. Persist actions to SQLite
+        with get_db(db_path) as conn:
+            for action in all_actions:
+                conn.execute(
+                    "INSERT INTO simulation_actions "
+                    "(simulation_id, round, agent_id, agent_name, action_type, content, platform, timestamp) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        simulation_id,
+                        action.round,
+                        action.agent_id,
+                        action.agent_name,
+                        action.action_type,
+                        json.dumps(action.action_args),
+                        action.platform,
+                        action.timestamp,
+                    ),
                 )
-                total_tokens["input"] += engine_result.get("input_tokens", 0)
-                total_tokens["output"] += engine_result.get("output_tokens", 0)
 
-        elif engine_type == "oasis":
-            # Deferred import -- OASIS is an optional dependency
-            from forkcast.simulation.oasis_engine import OasisEngine
-
-            _progress(stage="running", engine="oasis")
-            for platform in platforms:
-                if stop_event is not None and stop_event.is_set():
-                    break
-
-                oasis_engine = OasisEngine(sim_dir=sim_dir)
-                # Wire stop_event: spawn a monitor thread that checks the event
-                if stop_event is not None:
-                    def _oasis_stop_monitor(eng=oasis_engine):
-                        stop_event.wait()
-                        eng.stop()
-
-                    stop_thread = threading.Thread(target=_oasis_stop_monitor, daemon=True)
-                    stop_thread.start()
-                engine_result = oasis_engine.run(
-                    profiles=profiles,
-                    config=config,
-                    platform=platform,
-                    on_action=on_action,
-                    on_round=on_round,
-                )
-        else:
-            raise ValueError(f"Unknown engine type: {engine_type}")
-    finally:
-        actions_file.close()
-
-    # 4. Persist actions to SQLite
-    with get_db(db_path) as conn:
-        for action in all_actions:
-            conn.execute(
-                "INSERT INTO simulation_actions "
-                "(simulation_id, round, agent_id, agent_name, action_type, content, platform, timestamp) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    simulation_id,
-                    action.round,
-                    action.agent_id,
-                    action.agent_name,
-                    action.action_type,
-                    json.dumps(action.action_args),
-                    action.platform,
-                    action.timestamp,
-                ),
-            )
-
-    # 5. Update status
-    with get_db(db_path) as conn:
-        conn.execute(
-            "UPDATE simulations SET status = 'completed', updated_at = datetime('now') WHERE id = ?",
-            (simulation_id,),
-        )
-
-    # 6. Log token usage
-    if engine_type == "claude" and (total_tokens["input"] > 0 or total_tokens["output"] > 0):
+        # 5. Update status
         with get_db(db_path) as conn:
             conn.execute(
-                "INSERT INTO token_usage (project_id, stage, model, input_tokens, output_tokens, created_at) "
-                "VALUES (?, 'simulation_run', ?, ?, ?, datetime('now'))",
-                (project_id, client.default_model, total_tokens["input"], total_tokens["output"]),
+                "UPDATE simulations SET status = 'completed', updated_at = datetime('now') WHERE id = ?",
+                (simulation_id,),
             )
+
+        # 6. Log token usage
+        if engine_type == "claude" and (total_tokens["input"] > 0 or total_tokens["output"] > 0):
+            with get_db(db_path) as conn:
+                conn.execute(
+                    "INSERT INTO token_usage (project_id, stage, model, input_tokens, output_tokens, created_at) "
+                    "VALUES (?, 'simulation_run', ?, ?, ?, datetime('now'))",
+                    (project_id, client.default_model, total_tokens["input"], total_tokens["output"]),
+                )
+
+    except Exception:
+        logger.exception("Simulation %s failed", simulation_id)
+        with get_db(db_path) as conn:
+            conn.execute(
+                "UPDATE simulations SET status = 'failed', updated_at = datetime('now') WHERE id = ?",
+                (simulation_id,),
+            )
+        raise
 
     _progress(stage="complete", actions_count=len(all_actions))
 
