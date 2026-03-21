@@ -154,3 +154,61 @@ def sim_show(simulation_id: str):
         typer.echo(f"  Duration:  {config.get('total_hours', '?')}h")
         typer.echo(f"  Round:     {config.get('minutes_per_round', '?')}min")
         typer.echo(f"  Topics:    {', '.join(config.get('hot_topics', []))}")
+
+
+@sim_app.command("start")
+def sim_start(
+    simulation_id: str,
+    max_rounds: Annotated[int | None, typer.Option(help="Maximum rounds to run")] = None,
+):
+    """Start running a prepared simulation."""
+    settings = get_settings()
+
+    with get_db(settings.db_path) as conn:
+        sim = conn.execute(
+            "SELECT id, status, engine_type, config_json FROM simulations WHERE id = ?",
+            (simulation_id,),
+        ).fetchone()
+
+    if sim is None:
+        typer.echo(f"Error: Simulation not found: {simulation_id}", err=True)
+        raise typer.Exit(code=1)
+
+    if sim["status"] != "prepared":
+        typer.echo(f"Error: Simulation must be 'prepared' to start (current: {sim['status']})", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"Starting simulation {simulation_id} (engine: {sim['engine_type']})...")
+    client = ClaudeClient(api_key=settings.anthropic_api_key)
+
+    def on_progress(stage: str, **kwargs):
+        if stage == "round":
+            typer.echo(f"  [round] {kwargs.get('current', '?')}/{kwargs.get('total', '?')}")
+        elif stage == "action":
+            agent = kwargs.get("agent_name", "?")
+            atype = kwargs.get("action_type", "?")
+            typer.echo(f"  [action] {agent}: {atype}")
+        elif stage not in ("loading", "running"):
+            typer.echo(f"  [{stage}]")
+
+    try:
+        from forkcast.simulation.runner import run_simulation
+        result = run_simulation(
+            db_path=settings.db_path,
+            data_dir=settings.data_dir,
+            simulation_id=simulation_id,
+            client=client,
+            domains_dir=settings.domains_dir,
+            on_progress=on_progress,
+            max_rounds=max_rounds,
+        )
+    except Exception as e:
+        typer.echo(f"Error: {e}", err=True)
+        raise typer.Exit(code=1)
+
+    typer.echo(f"\nSimulation complete!")
+    typer.echo(f"  Actions: {result.actions_count}")
+    typer.echo(f"  Rounds:  {result.total_rounds}")
+    typer.echo(f"  Output:  {result.actions_path}")
+    if result.tokens_used:
+        typer.echo(f"  Tokens:  {result.tokens_used.get('input', 0)} in / {result.tokens_used.get('output', 0)} out")
