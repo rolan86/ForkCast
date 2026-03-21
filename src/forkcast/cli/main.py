@@ -4,6 +4,7 @@ import typer
 
 from forkcast.cli.chat_cmd import chat_app
 from forkcast.cli.domain_cmd import domain_app
+from forkcast.cli.eval_cmd import eval_app
 from forkcast.cli.project_cmd import project_app
 from forkcast.cli.report_cmd import report_app
 from forkcast.cli.server_cmd import server_app
@@ -17,6 +18,7 @@ app = typer.Typer(
 
 app.add_typer(chat_app, name="chat")
 app.add_typer(domain_app, name="domain")
+app.add_typer(eval_app, name="eval")
 app.add_typer(project_app, name="project")
 app.add_typer(report_app, name="report")
 app.add_typer(server_app, name="server")
