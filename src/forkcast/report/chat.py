@@ -8,6 +8,7 @@ from typing import Any, Iterator
 import networkx as nx
 
 from forkcast.db.connection import get_db
+from forkcast.db.queries import get_project_domain
 from forkcast.domains.loader import load_domain, read_prompt
 from forkcast.graph.graph_store import load_graph
 from forkcast.report.models import StreamEvent, ToolContext
@@ -143,9 +144,7 @@ def report_chat(
 
     # --- Load domain guidelines ---
     try:
-        with get_db(db_path) as conn:
-            proj_row = conn.execute("SELECT domain FROM projects WHERE id = ?", (project_id,)).fetchone()
-        domain_name = proj_row["domain"] if proj_row else "_default"
+        domain_name = get_project_domain(db_path, project_id)
         domain = load_domain(domain_name, domains_dir)
         guidelines = read_prompt(domain, "report_guidelines")
     except Exception as exc:

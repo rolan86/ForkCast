@@ -10,6 +10,7 @@ from typing import Any, Callable
 import networkx as nx
 
 from forkcast.db.connection import get_db
+from forkcast.db.queries import get_project_domain
 from forkcast.domains.loader import load_domain, read_prompt
 from forkcast.graph.graph_store import load_graph
 from forkcast.llm.client import ClaudeClient
@@ -135,17 +136,6 @@ def _get_project_id(db_path: Path, simulation_id: str) -> str:
     return row["project_id"]
 
 
-def _get_project_domain(db_path: Path, project_id: str) -> str:
-    """Get the domain name for a project."""
-    with get_db(db_path) as conn:
-        row = conn.execute(
-            "SELECT domain FROM projects WHERE id = ?",
-            (project_id,),
-        ).fetchone()
-    if row is None:
-        return "_default"
-    return row["domain"]
-
 
 def _create_report_record(db_path: Path, simulation_id: str, report_id: str | None = None) -> str:
     """Insert a new report row with 'generating' status, return its id."""
@@ -243,7 +233,7 @@ def generate_report(
 
     # --- Load domain guidelines ---
     try:
-        domain_name = _get_project_domain(db_path, project_id)
+        domain_name = get_project_domain(db_path, project_id)
         domain = load_domain(domain_name, domains_dir)
         guidelines = read_prompt(domain, "report_guidelines")
     except Exception as exc:

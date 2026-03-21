@@ -8,6 +8,7 @@ from typing import Any, Iterator
 from jinja2 import Template
 
 from forkcast.db.connection import get_db
+from forkcast.db.queries import get_domain_for_simulation
 from forkcast.domains.loader import load_domain, read_prompt
 from forkcast.report.models import StreamEvent
 from forkcast.simulation.models import AgentProfile
@@ -173,12 +174,7 @@ def agent_chat(
     actions = _load_agent_actions(db_path, simulation_id, agent_id)
 
     # --- Build system prompt using the project's domain ---
-    with get_db(db_path) as conn:
-        sim_row = conn.execute(
-            "SELECT p.domain FROM simulations s JOIN projects p ON s.project_id = p.id WHERE s.id = ?",
-            (simulation_id,),
-        ).fetchone()
-    domain_name = sim_row["domain"] if sim_row else "_default"
+    domain_name = get_domain_for_simulation(db_path, simulation_id)
     system_prompt = _build_agent_system_prompt(profile, actions, domains_dir, domain_name=domain_name)
 
     # --- Load prior chat history ---

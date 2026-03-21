@@ -8,6 +8,7 @@ from typing import Any
 from jinja2 import Template
 
 from forkcast.db.connection import get_db
+from forkcast.db.queries import get_project_domain
 from forkcast.domains.loader import load_domain, read_prompt
 from forkcast.report.models import ToolContext
 
@@ -423,9 +424,7 @@ def tool_interview_agent(
 
     # Load domain config and agent_system prompt
     try:
-        with get_db(ctx.db_path) as conn:
-            proj_row = conn.execute("SELECT domain FROM projects WHERE id = ?", (ctx.project_id,)).fetchone()
-        domain_name = proj_row["domain"] if proj_row else "_default"
+        domain_name = get_project_domain(ctx.db_path, ctx.project_id)
         domain = load_domain(domain_name, ctx.domains_dir)
         system_template_text = read_prompt(domain, "agent_system")
     except Exception as exc:
