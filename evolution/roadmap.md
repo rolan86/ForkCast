@@ -13,3 +13,9 @@ Items noted during development that aren't needed now but worth revisiting.
 - **Tool call observability** — Report chat executes tool calls during its research loop but doesn't expose which tools were called, what inputs were used, or what results came back. The `tool_calls_json` column in `chat_history` exists but is never written to, and `tool_use` stream events are consumed internally rather than yielded to the caller. Users and developers can't see how the agent reached its conclusions. Fix: yield tool_use events during chat, persist tool call details to chat_history. Noted during first live test (2026-03-21).
 
 - **Chat history truncation** — `_load_chat_history()` loads ALL messages without a LIMIT clause. The `max_history` parameter from the design spec (default 30) is accepted by the function signatures but never applied. Will exceed context limits in long conversations. Noted during code review (2026-03-21).
+
+## Domain Plugins (Post-UI Priority)
+
+- **Ad copy / content A/B testing domain** — Test messaging variations against simulated audience reactions. Exercises different entity types (brand voices, audience segments, competitors) and report structures (engagement predictions, sentiment breakdowns, winner recommendations). Build after UI is complete (post-Phase 7). Noted during Phase 6 planning (2026-03-21).
+
+- **Business concept testing domain** — How stakeholders (customers, competitors, regulators) react to a new product or strategy. Entity types include market segments, regulatory bodies, incumbent players. Report focuses on go/no-go signals, risk factors, stakeholder alignment. Build after UI is complete (post-Phase 7). Noted during Phase 6 planning (2026-03-21).
