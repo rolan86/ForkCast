@@ -58,6 +58,57 @@ class TestSimCreate:
         assert "Simulation created" in result.output
         assert "sim_" in result.output
 
+    def test_create_uses_domain_engine_when_not_specified(self, tmp_data_dir, tmp_db_path, tmp_domains_dir):
+        """When --engine is not passed, use the project's domain manifest sim_engine."""
+        project_id = _setup_db(tmp_db_path, tmp_data_dir)
+
+        # Update project to use social-media domain — create the domain dir
+        sm_dir = tmp_domains_dir / "social-media"
+        sm_dir.mkdir()
+        (sm_dir / "manifest.yaml").write_text(
+            "name: social-media\n"
+            "version: '1.0'\n"
+            "description: Social media\n"
+            "language: en\n"
+            "sim_engine: claude\n"
+            "platforms: [twitter]\n"
+        )
+        sm_prompts = sm_dir / "prompts"
+        sm_prompts.mkdir()
+        for name in ["ontology.md", "persona.md", "report_guidelines.md", "config_gen.md", "agent_system.md"]:
+            (sm_prompts / name).write_text(f"# {name}\nPlaceholder.\n")
+
+        with get_db(tmp_db_path) as conn:
+            conn.execute("UPDATE projects SET domain = 'social-media' WHERE id = ?", (project_id,))
+
+        with patch("forkcast.cli.sim_cmd.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.db_path = tmp_db_path
+            settings.data_dir = tmp_data_dir
+            settings.domains_dir = tmp_domains_dir
+            mock_settings.return_value = settings
+
+            result = runner.invoke(sim_app, ["create", project_id])
+
+        assert result.exit_code == 0
+        assert "Engine:    claude" in result.output
+
+    def test_create_explicit_engine_overrides_domain(self, tmp_data_dir, tmp_db_path, tmp_domains_dir):
+        """When --engine is explicitly passed, it overrides domain manifest."""
+        project_id = _setup_db(tmp_db_path, tmp_data_dir)
+
+        with patch("forkcast.cli.sim_cmd.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.db_path = tmp_db_path
+            settings.data_dir = tmp_data_dir
+            settings.domains_dir = tmp_domains_dir
+            mock_settings.return_value = settings
+
+            result = runner.invoke(sim_app, ["create", project_id, "--engine", "oasis"])
+
+        assert result.exit_code == 0
+        assert "Engine:    oasis" in result.output
+
     def test_create_simulation_project_not_found(self, tmp_data_dir, tmp_db_path, tmp_domains_dir):
         init_db(tmp_db_path)
 

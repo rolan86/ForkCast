@@ -9,6 +9,8 @@ import typer
 
 from forkcast.config import get_settings
 from forkcast.db.connection import get_db
+from forkcast.db.queries import get_project_domain
+from forkcast.domains.loader import load_domain
 from forkcast.llm.client import ClaudeClient
 from forkcast.simulation.prepare import prepare_simulation
 
@@ -18,7 +20,7 @@ sim_app = typer.Typer(help="Manage simulations", no_args_is_help=True)
 @sim_app.command("create")
 def sim_create(
     project_id: str,
-    engine: Annotated[str, typer.Option(help="Simulation engine")] = "oasis",
+    engine: Annotated[str | None, typer.Option(help="Simulation engine (default: from domain manifest)")] = None,
     platforms: Annotated[str, typer.Option(help="Comma-separated platforms")] = "twitter,reddit",
 ):
     """Create a new simulation for a project."""
@@ -32,6 +34,15 @@ def sim_create(
     if project is None:
         typer.echo(f"Error: Project not found: {project_id}", err=True)
         raise typer.Exit(code=1)
+
+    # Resolve engine from domain manifest if not explicitly provided
+    if engine is None:
+        try:
+            domain_name = get_project_domain(settings.db_path, project_id)
+            domain = load_domain(domain_name, settings.domains_dir)
+            engine = domain.sim_engine or "oasis"
+        except Exception:
+            engine = "oasis"
 
     # Find latest graph
     with get_db(settings.db_path) as conn:
