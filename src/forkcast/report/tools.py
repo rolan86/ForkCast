@@ -423,7 +423,10 @@ def tool_interview_agent(
 
     # Load domain config and agent_system prompt
     try:
-        domain = load_domain("_default", ctx.domains_dir)
+        with get_db(ctx.db_path) as conn:
+            proj_row = conn.execute("SELECT domain FROM projects WHERE id = ?", (ctx.project_id,)).fetchone()
+        domain_name = proj_row["domain"] if proj_row else "_default"
+        domain = load_domain(domain_name, ctx.domains_dir)
         system_template_text = read_prompt(domain, "agent_system")
     except Exception as exc:
         logger.warning("Could not load agent_system prompt: %s — using fallback", exc)

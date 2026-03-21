@@ -82,10 +82,11 @@ def _build_agent_system_prompt(
     profile: AgentProfile,
     actions: list[dict[str, Any]],
     domains_dir: Path,
+    domain_name: str = "_default",
 ) -> str:
     """Render the agent_system Jinja2 template and inject agent's own actions."""
     try:
-        domain = load_domain("_default", domains_dir)
+        domain = load_domain(domain_name, domains_dir)
         system_template_text = read_prompt(domain, "agent_system")
     except Exception as exc:
         logger.warning("Could not load agent_system prompt: %s — using fallback", exc)
@@ -171,8 +172,14 @@ def agent_chat(
     # --- Load agent's own actions ---
     actions = _load_agent_actions(db_path, simulation_id, agent_id)
 
-    # --- Build system prompt ---
-    system_prompt = _build_agent_system_prompt(profile, actions, domains_dir)
+    # --- Build system prompt using the project's domain ---
+    with get_db(db_path) as conn:
+        sim_row = conn.execute(
+            "SELECT p.domain FROM simulations s JOIN projects p ON s.project_id = p.id WHERE s.id = ?",
+            (simulation_id,),
+        ).fetchone()
+    domain_name = sim_row["domain"] if sim_row else "_default"
+    system_prompt = _build_agent_system_prompt(profile, actions, domains_dir, domain_name=domain_name)
 
     # --- Load prior chat history ---
     prior_messages = _load_chat_history(db_path, conversation_id)

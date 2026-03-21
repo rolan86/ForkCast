@@ -143,7 +143,10 @@ def report_chat(
 
     # --- Load domain guidelines ---
     try:
-        domain = load_domain("_default", domains_dir)
+        with get_db(db_path) as conn:
+            proj_row = conn.execute("SELECT domain FROM projects WHERE id = ?", (project_id,)).fetchone()
+        domain_name = proj_row["domain"] if proj_row else "_default"
+        domain = load_domain(domain_name, domains_dir)
         guidelines = read_prompt(domain, "report_guidelines")
     except Exception as exc:
         logger.warning("Could not load report_guidelines: %s — using fallback", exc)
