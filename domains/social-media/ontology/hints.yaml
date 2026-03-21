@@ -1,0 +1,21 @@
+# Social media domain — ontology hints for entity extraction
+max_entity_types: 10
+required_fallbacks:
+  - Person
+  - Organization
+
+suggested_types:
+  - name: Influencer
+    description: Individual with outsized social media reach and opinion-shaping power
+  - name: Brand
+    description: Company or product with an active social media presence and marketing strategy
+  - name: MediaOutlet
+    description: News organization, publication, or media channel that shapes public discourse
+  - name: Community
+    description: Online community, fanbase, or interest group with shared identity
+  - name: Regulator
+    description: Government body, regulatory agency, or standards organization
+  - name: Activist
+    description: Advocacy group, movement, or activist individual driving social change
+  - name: Analyst
+    description: Industry analyst, researcher, or expert commentator
