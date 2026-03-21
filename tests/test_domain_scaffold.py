@@ -91,3 +91,43 @@ def test_scaffolded_domain_is_loadable(tmp_domains_dir):
     assert domain.name == "loadable"
     assert domain.language == "es"
     assert len(domain.prompts) == 5
+
+
+def test_scaffold_includes_agent_system(tmp_domains_dir):
+    """scaffold_domain should create an agent_system.md prompt template."""
+    from forkcast.domains.scaffold import scaffold_domain
+
+    result = scaffold_domain(
+        name="with-agent-system",
+        description="Test",
+        language="en",
+        sim_engine="claude",
+        platforms=["twitter"],
+        domains_dir=tmp_domains_dir,
+    )
+
+    assert (result / "prompts" / "agent_system.md").exists()
+    content = (result / "prompts" / "agent_system.md").read_text()
+    assert len(content) > 10  # Not empty
+
+
+def test_scaffold_manifest_includes_agent_system(tmp_domains_dir):
+    """scaffold_domain manifest should list agent_system in prompts."""
+    import yaml
+
+    from forkcast.domains.scaffold import scaffold_domain
+
+    result = scaffold_domain(
+        name="manifest-check",
+        description="Test",
+        language="en",
+        sim_engine="claude",
+        platforms=["twitter"],
+        domains_dir=tmp_domains_dir,
+    )
+
+    with open(result / "manifest.yaml") as f:
+        manifest = yaml.safe_load(f)
+
+    assert "agent_system" in manifest["prompts"]
+    assert manifest["prompts"]["agent_system"] == "prompts/agent_system.md"

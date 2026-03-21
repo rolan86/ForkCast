@@ -49,6 +49,13 @@ _PROMPT_TEMPLATES = {
         "- Agent behavior configuration (activity levels, stances)\n"
         "- Platform configuration (feed algorithm weights)\n"
     ),
+    "agent_system.md": (
+        "# Agent System Prompt\n\n"
+        "You are {{ agent_name }} (@{{ username }}) participating in a social media simulation.\n\n"
+        "## Your Persona\n{{ persona }}\n\n"
+        "## Instructions\n"
+        "Browse your feed and decide what to do. Stay in character.\n"
+    ),
 }
 
 _HINTS_TEMPLATE = (
@@ -101,6 +108,7 @@ def scaffold_domain(
             "persona": "prompts/persona.md",
             "report_guidelines": "prompts/report_guidelines.md",
             "config_generation": "prompts/config_gen.md",
+            "agent_system": "prompts/agent_system.md",
         },
         "ontology": {
             "hints": "ontology/hints.yaml",
