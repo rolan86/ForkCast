@@ -52,8 +52,14 @@ def generate_ontology(
     requirement: str,
     document_summary: str,
     hints_path: Path | None = None,
+    system_prompt: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, int]]:
     """Generate an ontology from the prediction question and document summary.
+
+    Args:
+        system_prompt: Optional domain-specific system prompt. If None, uses the
+            hardcoded default prompt. Domain plugins can customize ontology
+            generation by providing their ontology.md content here.
 
     Returns (ontology_dict, {"input": N, "output": N}).
     """
@@ -70,7 +76,7 @@ def generate_ontology(
 
     response = client.complete(
         messages=[{"role": "user", "content": user_message}],
-        system=_ONTOLOGY_SYSTEM_PROMPT,
+        system=system_prompt or _ONTOLOGY_SYSTEM_PROMPT,
         temperature=0.2,
     )
 

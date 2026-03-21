@@ -121,6 +121,113 @@ def test_generate_ontology_uses_hints(tmp_path):
     assert "max_entity_types" in user_msg or "5" in user_msg
 
 
+def test_generate_ontology_uses_custom_system_prompt():
+    """generate_ontology should use provided system_prompt instead of hardcoded one."""
+    from forkcast.graph.ontology import generate_ontology
+
+    client, _ = _mock_claude_for_ontology()
+    custom_prompt = "You are a social media ontology expert. Focus on influencers and brands."
+
+    generate_ontology(
+        client=client,
+        requirement="How will influencers react?",
+        document_summary="Social media trends.",
+        hints_path=None,
+        system_prompt=custom_prompt,
+    )
+
+    call_args = client.complete.call_args
+    system = call_args.kwargs.get("system") or call_args[1].get("system", "")
+    assert system == custom_prompt
+
+
+def test_generate_ontology_falls_back_to_default_prompt():
+    """generate_ontology should use hardcoded prompt when no system_prompt provided."""
+    from forkcast.graph.ontology import generate_ontology, _ONTOLOGY_SYSTEM_PROMPT
+
+    client, _ = _mock_claude_for_ontology()
+
+    generate_ontology(
+        client=client,
+        requirement="Test",
+        document_summary="Summary",
+        hints_path=None,
+    )
+
+    call_args = client.complete.call_args
+    system = call_args.kwargs.get("system") or call_args[1].get("system", "")
+    assert system == _ONTOLOGY_SYSTEM_PROMPT
+
+
+def test_pipeline_passes_domain_ontology_prompt(tmp_path, tmp_domains_dir):
+    """build_graph_pipeline should read the domain's ontology.md and pass it to generate_ontology()."""
+    from unittest.mock import MagicMock, patch
+
+    from forkcast.graph.pipeline import build_graph_pipeline
+
+    # Write a custom ontology prompt to the _default domain
+    ontology_prompt = tmp_domains_dir / "_default" / "prompts" / "ontology.md"
+    ontology_prompt.write_text("Custom domain ontology prompt for testing.")
+
+    # Set up minimal DB and project
+    db_path = tmp_path / "test.db"
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+
+    from forkcast.db.connection import init_db
+
+    init_db(db_path)
+
+    # Create a project with a file
+    from forkcast.db.connection import get_db
+
+    seed_file = tmp_path / "seed.txt"
+    seed_file.write_text("Test document content for pipeline integration test.")
+
+    with get_db(db_path) as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, domain, requirement, status, created_at) "
+            "VALUES ('p1', 'Test', '_default', 'Test question', 'created', datetime('now'))"
+        )
+        conn.execute(
+            "INSERT INTO project_files (project_id, filename, path, size, created_at) "
+            "VALUES ('p1', 'seed.txt', ?, 50, datetime('now'))",
+            (str(seed_file),),
+        )
+
+    mock_client = MagicMock()
+    mock_client.default_model = "claude-sonnet-4-6"
+    # Mock generate_ontology to return valid result
+    mock_ontology = (
+        {"entity_types": [], "relationship_types": []},
+        {"input": 100, "output": 50},
+    )
+
+    with patch("forkcast.graph.pipeline.generate_ontology", return_value=mock_ontology) as mock_gen, \
+         patch("forkcast.graph.pipeline.extract_from_chunks") as mock_extract, \
+         patch("forkcast.graph.pipeline.create_vector_store"), \
+         patch("forkcast.graph.pipeline.index_chunks"), \
+         patch("forkcast.graph.pipeline.index_entities"):
+        # Mock extraction result
+        mock_extract.return_value = MagicMock(
+            entities=[], relationships=[],
+            chunks_processed=0, total_input_tokens=0, total_output_tokens=0,
+        )
+
+        build_graph_pipeline(
+            db_path=db_path,
+            data_dir=data_dir,
+            project_id="p1",
+            client=mock_client,
+            domains_dir=tmp_domains_dir,
+        )
+
+        # Verify generate_ontology was called with the domain's ontology prompt
+        mock_gen.assert_called_once()
+        call_kwargs = mock_gen.call_args.kwargs
+        assert call_kwargs.get("system_prompt") == "Custom domain ontology prompt for testing."
+
+
 def test_generate_ontology_stores_to_project(tmp_db_path):
     """store_ontology should update projects.ontology_json."""
     from forkcast.db.connection import get_db, init_db

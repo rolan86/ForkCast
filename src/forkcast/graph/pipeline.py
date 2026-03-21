@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from forkcast.db.connection import get_db
-from forkcast.domains.loader import load_domain
+from forkcast.domains.loader import load_domain, read_prompt
 from forkcast.graph.chunker import chunk_documents
 from forkcast.graph.entity_extractor import deduplicate_entities, extract_from_chunks
 from forkcast.graph.graph_store import build_graph, register_graph, save_graph
@@ -67,11 +67,19 @@ def build_graph_pipeline(
     # 4. Generate ontology
     _progress("generating_ontology")
     document_summary = " ".join(t[:200] for t in texts.values())
+
+    # Read domain-specific ontology prompt if available
+    try:
+        ontology_system_prompt = read_prompt(domain, "ontology")
+    except FileNotFoundError:
+        ontology_system_prompt = None
+
     ontology, ontology_response_tokens = generate_ontology(
         client=client,
         requirement=requirement,
         document_summary=document_summary,
         hints_path=domain.ontology_hints_path,
+        system_prompt=ontology_system_prompt,
     )
     store_ontology(db_path, project_id, ontology)
 
