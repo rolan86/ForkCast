@@ -90,4 +90,4 @@ def test_scaffolded_domain_is_loadable(tmp_domains_dir):
     domain = load_domain("loadable", tmp_domains_dir)
     assert domain.name == "loadable"
     assert domain.language == "es"
-    assert len(domain.prompts) == 4
+    assert len(domain.prompts) == 5

@@ -11,12 +11,13 @@ class DomainNotFoundError(Exception):
     """Raised when a domain directory does not exist."""
 
 
-PROMPT_KEYS = ["ontology", "persona", "report_guidelines", "config_generation"]
+PROMPT_KEYS = ["ontology", "persona", "report_guidelines", "config_generation", "agent_system"]
 DEFAULT_PROMPT_FILES = {
     "ontology": "prompts/ontology.md",
     "persona": "prompts/persona.md",
     "report_guidelines": "prompts/report_guidelines.md",
     "config_generation": "prompts/config_gen.md",
+    "agent_system": "prompts/agent_system.md",
 }
 
 

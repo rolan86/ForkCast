@@ -49,7 +49,7 @@ def tmp_domains_dir(tmp_path):
     )
 
     # Minimal prompt files
-    for name in ["ontology.md", "persona.md", "report_guidelines.md", "config_gen.md"]:
+    for name in ["ontology.md", "persona.md", "report_guidelines.md", "config_gen.md", "agent_system.md"]:
         (prompts / name).write_text(f"# Default {name}\n\nPlaceholder prompt.\n")
 
     # Ontology hints

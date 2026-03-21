@@ -11,6 +11,7 @@ prompts:
   persona: prompts/persona.md
   report_guidelines: prompts/report_guidelines.md
   config_generation: prompts/config_gen.md
+  agent_system: prompts/agent_system.md
 ontology:
   hints: ontology/hints.yaml
   max_entity_types: 10
