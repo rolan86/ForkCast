@@ -16,7 +16,7 @@ def chat_report(report_id: str):
     from forkcast.report.chat import report_chat
 
     settings = get_settings()
-    client = ClaudeClient(api_key=settings.claude_api_key)
+    client = ClaudeClient(api_key=settings.anthropic_api_key)
 
     typer.echo(f"Chatting with report agent (report {report_id}). Type 'exit' to quit.\n")
 
@@ -54,7 +54,7 @@ def chat_agent(simulation_id: str, agent_id: int):
     from forkcast.report.agent_chat import agent_chat
 
     settings = get_settings()
-    client = ClaudeClient(api_key=settings.claude_api_key)
+    client = ClaudeClient(api_key=settings.anthropic_api_key)
 
     typer.echo(f"Chatting with agent {agent_id} from simulation {simulation_id}. Type 'exit' to quit.\n")
 

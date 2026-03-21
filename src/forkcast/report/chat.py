@@ -132,9 +132,10 @@ def report_chat(
 
     # --- Load context ---
     sim_dir = data_dir / simulation_id
+    project_dir = data_dir / project_id
     profiles_path = sim_dir / "profiles" / "agents.json"
-    graph_path = sim_dir / "graph.json"
-    chroma_dir = sim_dir / "chroma"
+    graph_path = project_dir / "graph.json"
+    chroma_dir = project_dir / "chroma"
 
     profiles = _load_profiles_for_chat(profiles_path)
     graph = _load_graph_optional(graph_path)

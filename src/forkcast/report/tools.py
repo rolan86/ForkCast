@@ -312,40 +312,44 @@ def tool_simulation_data(
                 (sim_id,),
             ).fetchall()
 
+            # Fetch all engagement actions once (not per-post)
+            like_rows = conn.execute(
+                "SELECT content FROM simulation_actions "
+                "WHERE simulation_id = ? AND action_type = 'LIKE_POST'",
+                (sim_id,),
+            ).fetchall()
+            comment_rows = conn.execute(
+                "SELECT content FROM simulation_actions "
+                "WHERE simulation_id = ? AND action_type = 'CREATE_COMMENT'",
+                (sim_id,),
+            ).fetchall()
+
+            # Build engagement counts indexed by post_id string
+            like_counts: dict[str, int] = {}
+            for lr in like_rows:
+                try:
+                    data = json.loads(lr["content"] or "{}")
+                    pid = str(data.get("post_id", ""))
+                    if pid:
+                        like_counts[pid] = like_counts.get(pid, 0) + 1
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            comment_counts: dict[str, int] = {}
+            for cr in comment_rows:
+                try:
+                    data = json.loads(cr["content"] or "{}")
+                    pid = str(data.get("post_id", ""))
+                    if pid:
+                        comment_counts[pid] = comment_counts.get(pid, 0) + 1
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
             results = []
             for post_row in post_rows:
-                post_db_id = post_row["id"]
-                post_id_str = str(post_db_id)
-
-                # Count likes referencing this post
-                like_rows = conn.execute(
-                    "SELECT content FROM simulation_actions "
-                    "WHERE simulation_id = ? AND action_type = 'LIKE_POST'",
-                    (sim_id,),
-                ).fetchall()
-                likes = 0
-                for lr in like_rows:
-                    try:
-                        data = json.loads(lr["content"] or "{}")
-                        if str(data.get("post_id", "")) == post_id_str:
-                            likes += 1
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-
-                # Count comments referencing this post
-                comment_rows = conn.execute(
-                    "SELECT content FROM simulation_actions "
-                    "WHERE simulation_id = ? AND action_type = 'CREATE_COMMENT'",
-                    (sim_id,),
-                ).fetchall()
-                comments = 0
-                for cr in comment_rows:
-                    try:
-                        data = json.loads(cr["content"] or "{}")
-                        if str(data.get("post_id", "")) == post_id_str:
-                            comments += 1
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+                post_id_str = str(post_row["id"])
+                likes = like_counts.get(post_id_str, 0)
+                comments = comment_counts.get(post_id_str, 0)
 
                 try:
                     post_content = json.loads(post_row["content"] or "{}")
@@ -355,7 +359,7 @@ def tool_simulation_data(
 
                 results.append(
                     {
-                        "post_id": post_db_id,
+                        "post_id": post_row["id"],
                         "agent_id": post_row["agent_id"],
                         "agent_name": post_row["agent_name"],
                         "content": text,
@@ -437,6 +441,17 @@ def tool_interview_agent(
         profession=profile.profession,
         interests=", ".join(profile.interests) if profile.interests else "",
     )
+
+    # Inject agent's own actions from the simulation as context
+    actions = tool_agent_actions(ctx, agent_id=agent_id)
+    if actions:
+        action_lines = []
+        for a in actions:
+            action_lines.append(f"- Round {a.get('round', '?')}: {a.get('action_type', '?')} — {a.get('content', '')}")
+        actions_text = "\n".join(action_lines)
+        system_prompt += (
+            f"\n\nHere is what you did during the simulation:\n{actions_text}"
+        )
 
     messages = [{"role": "user", "content": question}]
 

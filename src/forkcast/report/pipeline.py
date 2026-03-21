@@ -135,9 +135,10 @@ def _get_project_id(db_path: Path, simulation_id: str) -> str:
     return row["project_id"]
 
 
-def _create_report_record(db_path: Path, simulation_id: str) -> str:
+def _create_report_record(db_path: Path, simulation_id: str, report_id: str | None = None) -> str:
     """Insert a new report row with 'generating' status, return its id."""
-    report_id = f"report_{secrets.token_hex(8)}"
+    if report_id is None:
+        report_id = f"report_{secrets.token_hex(8)}"
     now = datetime.now(timezone.utc).isoformat()
     with get_db(db_path) as conn:
         conn.execute(
@@ -201,6 +202,7 @@ def generate_report(
     domains_dir: Path,
     max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS,
     on_progress: Callable | None = None,
+    report_id: str | None = None,
 ) -> ReportResult:
     """
     Generate a prediction report from simulation results via a tool-use loop.
@@ -218,9 +220,10 @@ def generate_report(
     # --- Load context ---
     project_id = _get_project_id(db_path, simulation_id)
     sim_dir = data_dir / simulation_id
+    project_dir = data_dir / project_id
     profiles_path = sim_dir / "profiles" / "agents.json"
-    graph_path = sim_dir / "graph.json"
-    chroma_dir = sim_dir / "chroma"
+    graph_path = project_dir / "graph.json"
+    chroma_dir = project_dir / "chroma"
 
     profiles = _load_profiles(profiles_path)
     graph = _load_graph_optional(graph_path)
@@ -235,7 +238,7 @@ def generate_report(
         guidelines = "You are a report analyst. Generate a comprehensive prediction report."
 
     # --- Create DB record ---
-    report_id = _create_report_record(db_path, simulation_id)
+    report_id = _create_report_record(db_path, simulation_id, report_id=report_id)
 
     # Build tool context
     ctx = ToolContext(

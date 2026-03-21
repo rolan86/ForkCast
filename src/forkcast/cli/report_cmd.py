@@ -17,7 +17,7 @@ report_app = typer.Typer(help="Manage prediction reports", no_args_is_help=True)
 def report_generate(simulation_id: str):
     """Generate a report for a completed simulation."""
     settings = get_settings()
-    client = ClaudeClient(api_key=settings.claude_api_key)
+    client = ClaudeClient(api_key=settings.anthropic_api_key)
 
     typer.echo(f"Generating report for simulation {simulation_id}...")
 

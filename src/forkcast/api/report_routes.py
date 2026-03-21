@@ -108,6 +108,7 @@ async def generate_report_endpoint(req: GenerateReportRequest):
                 settings.domains_dir,
                 on_progress=lambda **kw: loop.call_soon_threadsafe(queue.put_nowait, kw),
                 max_tool_rounds=req.max_tool_rounds,
+                report_id=report_id,
             )
             await queue.put({
                 "stage": "result",
@@ -212,18 +213,30 @@ async def chat_with_report(req: ChatReportRequest):
     report_id = req.report_id
     message = req.message
 
-    async def _event_generator():
-        events = await asyncio.to_thread(
-            lambda: list(report_chat(
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    async def _produce():
+        def _run():
+            for event in report_chat(
                 settings.db_path,
                 settings.data_dir,
                 report_id,
                 message,
                 client,
                 settings.domains_dir,
-            ))
-        )
-        for event in events:
+            ):
+                loop.call_soon_threadsafe(queue.put_nowait, event)
+            loop.call_soon_threadsafe(queue.put_nowait, None)
+        await asyncio.to_thread(_run)
+
+    asyncio.create_task(_produce())
+
+    async def _event_generator():
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
             yield {"event": event.type, "data": json.dumps(event.data, default=str)}
 
     return EventSourceResponse(_event_generator())
@@ -249,9 +262,12 @@ async def chat_with_agent(req: ChatAgentRequest):
     agent_id = req.agent_id
     message = req.message
 
-    async def _event_generator():
-        events = await asyncio.to_thread(
-            lambda: list(agent_chat(
+    queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    async def _produce():
+        def _run():
+            for event in agent_chat(
                 settings.db_path,
                 settings.data_dir,
                 simulation_id,
@@ -259,9 +275,18 @@ async def chat_with_agent(req: ChatAgentRequest):
                 message,
                 client,
                 settings.domains_dir,
-            ))
-        )
-        for event in events:
+            ):
+                loop.call_soon_threadsafe(queue.put_nowait, event)
+            loop.call_soon_threadsafe(queue.put_nowait, None)
+        await asyncio.to_thread(_run)
+
+    asyncio.create_task(_produce())
+
+    async def _event_generator():
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
             yield {"event": event.type, "data": json.dumps(event.data, default=str)}
 
     return EventSourceResponse(_event_generator())
