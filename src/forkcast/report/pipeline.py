@@ -136,7 +136,6 @@ def _get_project_id(db_path: Path, simulation_id: str) -> str:
     return row["project_id"]
 
 
-
 def _create_report_record(db_path: Path, simulation_id: str, report_id: str | None = None) -> str:
     """Insert a new report row with 'generating' status, return its id."""
     if report_id is None:
