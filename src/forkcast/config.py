@@ -8,6 +8,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+AVAILABLE_MODELS = [
+    {"id": "claude-haiku-4-5", "label": "Haiku 4.5 (fast, cheap)", "supports_thinking": False},
+    {"id": "claude-sonnet-4-6", "label": "Sonnet 4.6 (balanced)", "supports_thinking": True},
+]
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
