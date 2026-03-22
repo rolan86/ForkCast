@@ -41,7 +41,7 @@ def eval_run(
     if not gates_only:
         try:
             from forkcast.llm.client import ClaudeClient
-            client = ClaudeClient()
+            client = ClaudeClient(api_key=settings.anthropic_api_key)
         except Exception as exc:
             typer.echo(f"Warning: Could not create LLM client ({exc}), running gates only", err=True)
             gates_only = True
