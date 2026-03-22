@@ -230,3 +230,90 @@ class TestDBV3Migration:
             assert row is not None
             assert row["status"] == "completed"
             assert row["platforms"] == '["twitter"]'
+
+
+import json
+import pytest
+from httpx import ASGITransport, AsyncClient
+from forkcast.api.app import create_app
+
+
+@pytest.fixture
+def app(tmp_data_dir, tmp_db_path, tmp_domains_dir, monkeypatch):
+    monkeypatch.setenv("FORKCAST_DATA_DIR", str(tmp_data_dir))
+    monkeypatch.setenv("FORKCAST_DOMAINS_DIR", str(tmp_domains_dir))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+    from forkcast.config import reset_settings
+    reset_settings()
+    return create_app()
+
+
+@pytest.fixture
+async def client(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        yield c
+
+
+def _create_project(db_path):
+    from forkcast.db.connection import get_db
+    with get_db(db_path) as conn:
+        conn.execute(
+            "INSERT INTO projects (id, domain, name, status, requirement, created_at) "
+            "VALUES ('p1', '_default', 'Test', 'created', 'req', datetime('now'))"
+        )
+
+
+class TestPatchSettings:
+    @pytest.mark.anyio
+    async def test_patch_updates_engine(self, client, tmp_db_path):
+        _create_project(tmp_db_path)
+        resp = await client.post("/api/simulations", json={"project_id": "p1"})
+        sim_id = resp.json()["data"]["id"]
+        resp = await client.patch(f"/api/simulations/{sim_id}/settings", json={"engine_type": "claude"})
+        assert resp.status_code == 200
+        resp = await client.get(f"/api/simulations/{sim_id}")
+        assert resp.json()["data"]["engine_type"] == "claude"
+
+    @pytest.mark.anyio
+    async def test_patch_updates_models(self, client, tmp_db_path):
+        _create_project(tmp_db_path)
+        resp = await client.post("/api/simulations", json={"project_id": "p1"})
+        sim_id = resp.json()["data"]["id"]
+        resp = await client.patch(f"/api/simulations/{sim_id}/settings", json={
+            "prep_model": "claude-haiku-4-5",
+            "run_model": "claude-sonnet-4-6",
+        })
+        assert resp.status_code == 200
+        resp = await client.get(f"/api/simulations/{sim_id}")
+        assert resp.json()["data"]["prep_model"] == "claude-haiku-4-5"
+
+    @pytest.mark.anyio
+    async def test_patch_rejects_completed_simulation(self, client, tmp_db_path):
+        _create_project(tmp_db_path)
+        resp = await client.post("/api/simulations", json={"project_id": "p1"})
+        sim_id = resp.json()["data"]["id"]
+        from forkcast.db.connection import get_db
+        with get_db(tmp_db_path) as conn:
+            conn.execute("UPDATE simulations SET status = 'completed' WHERE id = ?", (sim_id,))
+        resp = await client.patch(f"/api/simulations/{sim_id}/settings", json={"engine_type": "claude"})
+        assert resp.status_code == 409
+
+    @pytest.mark.anyio
+    async def test_patch_partial_update(self, client, tmp_db_path):
+        _create_project(tmp_db_path)
+        resp = await client.post("/api/simulations", json={"project_id": "p1"})
+        sim_id = resp.json()["data"]["id"]
+        resp = await client.patch(f"/api/simulations/{sim_id}/settings", json={"platforms": ["twitter"]})
+        assert resp.status_code == 200
+        resp = await client.get(f"/api/simulations/{sim_id}")
+        assert resp.json()["data"]["platforms"] == ["twitter"]
+
+
+class TestSmartEngineDefaults:
+    @pytest.mark.anyio
+    async def test_create_reads_engine_from_domain(self, client, tmp_db_path):
+        _create_project(tmp_db_path)
+        resp = await client.post("/api/simulations", json={"project_id": "p1"})
+        data = resp.json()["data"]
+        # _default domain manifest has sim_engine: claude
+        assert data["engine_type"] == "claude"

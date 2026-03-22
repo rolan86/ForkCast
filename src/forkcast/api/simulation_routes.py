@@ -14,6 +14,7 @@ from sse_starlette.sse import EventSourceResponse
 from forkcast.api.responses import error, success
 from forkcast.config import get_settings
 from forkcast.db.connection import get_db
+from forkcast.domains.loader import load_domain
 from forkcast.llm.client import ClaudeClient
 from forkcast.simulation.prepare import prepare_simulation
 from forkcast.simulation.runner import run_simulation
@@ -28,8 +29,15 @@ _prepare_queues: dict[str, asyncio.Queue] = {}
 
 class CreateSimulationRequest(BaseModel):
     project_id: str
-    engine_type: str = "oasis"
-    platforms: list[str] = ["twitter", "reddit"]
+    engine_type: str | None = None
+    platforms: list[str] | None = None
+
+
+class UpdateSettingsRequest(BaseModel):
+    engine_type: str | None = None
+    platforms: list[str] | None = None
+    prep_model: str | None = None
+    run_model: str | None = None
 
 
 @router.post("")
@@ -39,11 +47,24 @@ async def create_simulation(req: CreateSimulationRequest):
 
     with get_db(settings.db_path) as conn:
         project = conn.execute(
-            "SELECT id, status FROM projects WHERE id = ?", (req.project_id,)
+            "SELECT id, domain, status FROM projects WHERE id = ?", (req.project_id,)
         ).fetchone()
 
     if project is None:
         return error(f"Project not found: {req.project_id}", status_code=404)
+
+    # Load domain defaults for engine/platforms when not explicitly provided
+    domain_name = project["domain"] if project["domain"] else "_default"
+    try:
+        domain = load_domain(domain_name, settings.domains_dir)
+        default_engine = domain.sim_engine
+        default_platforms = domain.platforms
+    except Exception:
+        default_engine = "claude"
+        default_platforms = ["twitter", "reddit"]
+
+    engine_type = req.engine_type if req.engine_type is not None else default_engine
+    platforms = req.platforms if req.platforms is not None else default_platforms
 
     # Find the latest graph for this project
     with get_db(settings.db_path) as conn:
@@ -61,7 +82,7 @@ async def create_simulation(req: CreateSimulationRequest):
         conn.execute(
             "INSERT INTO simulations (id, project_id, graph_id, status, engine_type, platforms, created_at) "
             "VALUES (?, ?, ?, 'created', ?, ?, ?)",
-            (sim_id, req.project_id, graph_id, req.engine_type, json.dumps(req.platforms), now),
+            (sim_id, req.project_id, graph_id, engine_type, json.dumps(platforms), now),
         )
 
     return success(
@@ -70,8 +91,8 @@ async def create_simulation(req: CreateSimulationRequest):
             "project_id": req.project_id,
             "graph_id": graph_id,
             "status": "created",
-            "engine_type": req.engine_type,
-            "platforms": req.platforms,
+            "engine_type": engine_type,
+            "platforms": platforms,
             "created_at": now,
         },
         status_code=201,
@@ -116,6 +137,47 @@ async def get_simulation(simulation_id: str):
         d["config"] = json.loads(d["config_json"])
     d.pop("config_json", None)
     return success(d)
+
+
+@router.patch("/{simulation_id}/settings")
+async def update_settings(simulation_id: str, req: UpdateSettingsRequest):
+    """Update simulation settings (engine, platforms, models). Only allowed before completion."""
+    settings = get_settings()
+    with get_db(settings.db_path) as conn:
+        sim = conn.execute("SELECT id, status FROM simulations WHERE id = ?", (simulation_id,)).fetchone()
+    if sim is None:
+        return error(f"Simulation not found: {simulation_id}", status_code=404)
+    if sim["status"] == "completed":
+        return error("Cannot update settings: simulation is completed", status_code=409)
+    if sim["status"] == "running" and simulation_id in _run_queues:
+        return error("Cannot update settings: simulation is running", status_code=409)
+    if sim["status"] == "preparing" and simulation_id in _prepare_queues:
+        return error("Cannot update settings: preparation is in progress", status_code=409)
+
+    updates = []
+    params = []
+    if req.engine_type is not None:
+        updates.append("engine_type = ?")
+        params.append(req.engine_type)
+    if req.platforms is not None:
+        updates.append("platforms = ?")
+        params.append(json.dumps(req.platforms))
+    if req.prep_model is not None:
+        updates.append("prep_model = ?")
+        params.append(req.prep_model)
+    if req.run_model is not None:
+        updates.append("run_model = ?")
+        params.append(req.run_model)
+
+    if not updates:
+        return success({"updated": False})
+
+    updates.append("updated_at = datetime('now')")
+    params.append(simulation_id)
+    with get_db(settings.db_path) as conn:
+        conn.execute(f"UPDATE simulations SET {', '.join(updates)} WHERE id = ?", params)
+
+    return success({"updated": True, "simulation_id": simulation_id})
 
 
 @router.post("/{simulation_id}/prepare")

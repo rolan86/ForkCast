@@ -81,7 +81,8 @@ class TestCreateSimulation:
 
         assert response.status_code == 201
         data = response.json()["data"]
-        assert data["engine_type"] == "oasis"
+        # engine_type now comes from _default domain manifest (sim_engine: claude)
+        assert data["engine_type"] == "claude"
         assert data["platforms"] == ["twitter", "reddit"]
 
 
