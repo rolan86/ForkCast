@@ -30,18 +30,16 @@ def setup_project_with_graph(app, tmp_path):
     graph_dir.mkdir(parents=True)
     graph_path = graph_dir / "graph.json"
 
-    # Write a minimal NetworkX node-link JSON
+    # Write graph JSON matching the real save_graph() output format
     graph_data = {
-        "directed": True,
-        "multigraph": False,
-        "graph": {},
         "nodes": [
-            {"id": "AI Act", "type": "Concept", "description": "EU regulation"},
-            {"id": "Google", "type": "Organization", "description": "Tech company"},
+            {"name": "AI Act", "type": "Concept", "description": "EU regulation"},
+            {"name": "Google", "type": "Organization", "description": "Tech company"},
         ],
-        "links": [
-            {"source": "Google", "target": "AI Act", "label": "subject_to"},
+        "edges": [
+            {"source": "Google", "target": "AI Act", "type": "subject_to"},
         ],
+        "metadata": {"node_count": 2, "edge_count": 1},
     }
     graph_path.write_text(json.dumps(graph_data))
 

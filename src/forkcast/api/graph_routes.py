@@ -126,6 +126,20 @@ async def get_graph_data(project_id: str):
         raise HTTPException(status_code=404, detail="Graph file not found")
 
     raw = json.loads(graph_path.read_text())
-    nodes = [{"id": n["id"], "type": n.get("type", ""), "description": n.get("description", "")} for n in raw.get("nodes", [])]
-    edges = [{"source": e["source"], "target": e["target"], "label": e.get("label", "")} for e in raw.get("links", [])]
+    nodes = [
+        {
+            "id": n.get("name", n.get("id", "")),
+            "type": n.get("type", ""),
+            "description": n.get("description", ""),
+        }
+        for n in raw.get("nodes", [])
+    ]
+    edges = [
+        {
+            "source": e["source"],
+            "target": e["target"],
+            "label": e.get("type", e.get("label", "")),
+        }
+        for e in raw.get("edges", raw.get("links", []))
+    ]
     return success({"nodes": nodes, "edges": edges})

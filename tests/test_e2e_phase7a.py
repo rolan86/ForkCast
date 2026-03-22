@@ -75,21 +75,20 @@ def _seed_graph(db_path, data_dir, project_id):
     graph_dir.mkdir(parents=True, exist_ok=True)
     graph_path = graph_dir / "graph.json"
 
+    # Match the real save_graph() output format: "name" not "id", "edges" not "links"
     graph_data = {
-        "directed": True,
-        "multigraph": False,
-        "graph": {},
         "nodes": [
-            {"id": "EU AI Act", "type": "Concept", "description": "European regulation on artificial intelligence"},
-            {"id": "Google", "type": "Organization", "description": "Technology company"},
-            {"id": "OpenAI", "type": "Organization", "description": "AI research lab"},
-            {"id": "Compliance", "type": "Concept", "description": "Regulatory compliance"},
+            {"name": "EU AI Act", "type": "Concept", "description": "European regulation on artificial intelligence"},
+            {"name": "Google", "type": "Organization", "description": "Technology company"},
+            {"name": "OpenAI", "type": "Organization", "description": "AI research lab"},
+            {"name": "Compliance", "type": "Concept", "description": "Regulatory compliance"},
         ],
-        "links": [
-            {"source": "Google", "target": "EU AI Act", "label": "subject_to"},
-            {"source": "OpenAI", "target": "EU AI Act", "label": "subject_to"},
-            {"source": "EU AI Act", "target": "Compliance", "label": "requires"},
+        "edges": [
+            {"source": "Google", "target": "EU AI Act", "type": "subject_to"},
+            {"source": "OpenAI", "target": "EU AI Act", "type": "subject_to"},
+            {"source": "EU AI Act", "target": "Compliance", "type": "requires"},
         ],
+        "metadata": {"node_count": 4, "edge_count": 3},
     }
     graph_path.write_text(json.dumps(graph_data))
 
