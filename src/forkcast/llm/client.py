@@ -15,6 +15,15 @@ MAX_RETRIES = 3
 RETRY_DELAY = 1.0
 
 
+def _model_supports_thinking(model: str) -> bool:
+    """Check if a model supports extended thinking, based on AVAILABLE_MODELS."""
+    from forkcast.config import AVAILABLE_MODELS
+    for m in AVAILABLE_MODELS:
+        if m["id"] == model:
+            return m["supports_thinking"]
+    return False
+
+
 @dataclass
 class LLMResponse:
     """Standardized response from any Claude API call."""
@@ -88,6 +97,25 @@ class ClaudeClient:
             temperature=1.0,  # Required for extended thinking
             thinking={"type": "enabled", "budget_tokens": thinking_budget},
         )
+
+    def smart_call(
+        self,
+        model: str,
+        messages: list[dict[str, str]],
+        system: str | None = None,
+        thinking_budget: int = 8000,
+        **kwargs,
+    ) -> LLMResponse:
+        """Route to think() or complete() based on model's thinking support."""
+        if _model_supports_thinking(model):
+            return self.think(
+                messages=messages, system=system, model=model,
+                thinking_budget=thinking_budget, **kwargs,
+            )
+        else:
+            return self.complete(
+                messages=messages, system=system, model=model, **kwargs,
+            )
 
     def stream(
         self,
