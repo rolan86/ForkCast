@@ -1,0 +1,90 @@
+@import "tailwindcss";
+
+/* === Design Tokens as CSS Custom Properties === */
+:root {
+  /* Typography */
+  --font-display: 'Satoshi', 'Inter', system-ui, sans-serif;
+  --font-body: 'General Sans', 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Surfaces — Light */
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-sunken: #fafafa;
+  --border: #e4e4e7;
+  --border-subtle: #f4f4f5;
+
+  /* Text — Light */
+  --text-primary: #18181b;
+  --text-secondary: #71717a;
+  --text-tertiary: #a1a1aa;
+
+  /* Accent */
+  --accent: #6366f1;
+  --accent-hover: #4f46e5;
+  --accent-surface: #eef2ff;
+
+  /* Status */
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+
+  /* Data panels (always dark) */
+  --data-bg: #09090b;
+  --data-bg-raised: #18181b;
+  --data-text: #fafafa;
+  --data-text-muted: #71717a;
+  --data-border: #3f3f46;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.08);
+  --shadow-lg: 0 4px 16px rgba(0,0,0,0.12);
+  --shadow-glow: 0 0 20px rgba(99,102,241,0.15);
+
+  /* Motion */
+  --duration-fast: 100ms;
+  --duration-normal: 200ms;
+  --duration-slow: 350ms;
+  --duration-crawl: 600ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Graph node colors */
+  --graph-person: #3b82f6;
+  --graph-organization: #8b5cf6;
+  --graph-concept: #6366f1;
+  --graph-topic: #10b981;
+  --graph-event: #f59e0b;
+}
+
+.dark {
+  --surface: #09090b;
+  --surface-raised: #18181b;
+  --surface-sunken: #09090b;
+  --border: #27272a;
+  --border-subtle: #1c1c1e;
+  --text-primary: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-tertiary: #52525b;
+  --accent: #818cf8;
+  --accent-hover: #6366f1;
+  --accent-surface: #1e1b4b;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.3);
+  --shadow-lg: 0 4px 16px rgba(0,0,0,0.4);
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--surface);
+  color: var(--text-primary);
+  transition: color var(--duration-normal) ease, background-color var(--duration-normal) ease;
+}
+
+/* Data panel noise texture */
+.data-panel {
+  background-color: var(--data-bg);
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  color: var(--data-text);
+}
