@@ -4,8 +4,9 @@ import asyncio
 import json
 import logging
 from collections import defaultdict
+from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
 from forkcast.api.responses import error, success
@@ -106,3 +107,25 @@ async def get_graph(project_id: str):
         return error("No graph built for this project", status_code=404)
 
     return success(dict(graph))
+
+
+@router.get("/{project_id}/graph/data")
+async def get_graph_data(project_id: str):
+    """Return graph nodes and edges in D3-friendly format."""
+    settings = get_settings()
+    with get_db(settings.db_path) as conn:
+        row = conn.execute(
+            "SELECT file_path FROM graphs WHERE project_id = ? ORDER BY created_at DESC LIMIT 1",
+            (project_id,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="No graph found for project")
+
+    graph_path = Path(row["file_path"])
+    if not graph_path.exists():
+        raise HTTPException(status_code=404, detail="Graph file not found")
+
+    raw = json.loads(graph_path.read_text())
+    nodes = [{"id": n["id"], "type": n.get("type", ""), "description": n.get("description", "")} for n in raw.get("nodes", [])]
+    edges = [{"source": e["source"], "target": e["target"], "label": e.get("label", "")} for e in raw.get("links", [])]
+    return success({"nodes": nodes, "edges": edges})
