@@ -1,3 +1,9 @@
+<script setup>
+import AppShell from '@/components/AppShell.vue'
+</script>
+
 <template>
-  <div>ForkCast</div>
+  <AppShell>
+    <RouterView />
+  </AppShell>
 </template>
