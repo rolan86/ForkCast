@@ -47,3 +47,6 @@ evolution/
 
 # uv lock
 uv.lock
+
+# Git worktrees
+.worktrees/
