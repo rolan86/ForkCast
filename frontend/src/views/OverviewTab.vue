@@ -18,7 +18,7 @@ const entityCount = computed(() => graph.value?.node_count || 0)
 const edgeCount = computed(() => graph.value?.edge_count || 0)
 const simCount = computed(() => sims.value.length)
 const latestSim = computed(() => sims.value[0] || null)
-const graphBuilt = computed(() => !!graph.value && graph.value.status === 'built')
+const graphBuilt = computed(() => !!graph.value && (graph.value.status === 'complete' || graph.value.status === 'built'))
 
 function goToGraph() {
   router.push({ name: 'project-graph', params: { id: route.params.id } })

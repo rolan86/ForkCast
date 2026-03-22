@@ -45,7 +45,7 @@ const NODE_COLORS = {
 }
 
 onMounted(() => {
-  if (store.currentGraph && store.currentGraph.status === 'built') {
+  if (store.currentGraph && (store.currentGraph.status === 'complete' || store.currentGraph.status === 'built')) {
     loadGraphData()
   } else {
     viewState.value = 'empty'

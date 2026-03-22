@@ -141,7 +141,7 @@ function newSimulation() {
   viewState.value = 'empty'
 }
 
-const graphBuilt = computed(() => store.currentGraph?.status === 'built')
+const graphBuilt = computed(() => store.currentGraph?.status === 'complete' || store.currentGraph?.status === 'built')
 const sims = computed(() => store.projectSimulations)
 const runProgress = computed(() => store.simRunProgress)
 const platforms = computed(() => {
