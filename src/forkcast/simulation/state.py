@@ -30,6 +30,23 @@ class Post:
                 parts.append(f"  └ ... and {len(comments) - 3} more comments")
         return "\n".join(parts)
 
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id, "author_id": self.author_id, "author_name": self.author_name,
+            "content": self.content, "timestamp": self.timestamp,
+            "likes": self.likes, "dislikes": self.dislikes,
+            "liked_by": sorted(self._liked_by), "disliked_by": sorted(self._disliked_by),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Post":
+        post = cls(id=d["id"], author_id=d["author_id"], author_name=d["author_name"],
+                   content=d["content"], timestamp=d["timestamp"],
+                   likes=d.get("likes", 0), dislikes=d.get("dislikes", 0))
+        post._liked_by = set(d.get("liked_by", []))
+        post._disliked_by = set(d.get("disliked_by", []))
+        return post
+
 
 @dataclass
 class Comment:
@@ -41,6 +58,14 @@ class Comment:
     author_name: str
     content: str
     timestamp: str
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "post_id": self.post_id, "author_id": self.author_id,
+                "author_name": self.author_name, "content": self.content, "timestamp": self.timestamp}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Comment":
+        return cls(**d)
 
 
 class SimulationState:
@@ -176,3 +201,28 @@ class SimulationState:
         scored = [(score(p, i), p) for i, p in enumerate(candidates)]
         scored.sort(key=lambda x: x[0], reverse=True)
         return [p for _, p in scored[:limit]]
+
+    def to_dict(self) -> dict:
+        return {
+            "platform": self.platform, "feed_weights": self.feed_weights,
+            "posts": [p.to_dict() for p in self.posts],
+            "comments": [c.to_dict() for c in self.comments],
+            "followers": {str(k): sorted(v) for k, v in self.followers.items()},
+            "mutes": {str(k): sorted(v) for k, v in self.mutes.items()},
+            "_next_post_id": self._next_post_id, "_next_comment_id": self._next_comment_id,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "SimulationState":
+        state = cls(platform=d["platform"], feed_weights=d["feed_weights"])
+        state.posts = [Post.from_dict(p) for p in d.get("posts", [])]
+        state.comments = [Comment.from_dict(c) for c in d.get("comments", [])]
+        state.followers = defaultdict(set)
+        for k, v in d.get("followers", {}).items():
+            state.followers[int(k)] = set(v)
+        state.mutes = defaultdict(set)
+        for k, v in d.get("mutes", {}).items():
+            state.mutes[int(k)] = set(v)
+        state._next_post_id = d.get("_next_post_id", len(state.posts))
+        state._next_comment_id = d.get("_next_comment_id", len(state.comments))
+        return state
