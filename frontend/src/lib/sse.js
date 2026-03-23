@@ -23,7 +23,7 @@ export const SSE_STAGES = { GRAPH_STAGES, PREPARE_STAGES, RUN_STAGES }
  *
  * @param {string} url - SSE endpoint URL
  * @param {string[]} stageNames - Named events to listen for
- * @param {Object} handlers - { onMessage(data), onError(message), onComplete(), onDisconnect() }
+ * @param {Object} handlers - { onMessage(data), onError(message), onComplete(), onDisconnect(), onReconnect() }
  * @returns {{ source: EventSource, close: Function }}
  */
 export function connectSSE(url, stageNames, handlers) {
@@ -32,14 +32,25 @@ export function connectSSE(url, stageNames, handlers) {
   const RETRY_DELAY = 3000
   let source = null
   let closed = false
+  let wasDisconnected = false
 
   function connect() {
     source = new EventSource(url)
 
     for (const stage of stageNames) {
       source.addEventListener(stage, (event) => {
+        if (wasDisconnected) {
+          wasDisconnected = false
+          handlers.onReconnect?.()
+        }
         retries = 0 // Reset on successful message
-        const data = JSON.parse(event.data)
+        let data
+        try {
+          data = JSON.parse(event.data)
+        } catch (e) {
+          console.warn(`[SSE] Failed to parse event data for stage "${stage}":`, e.message)
+          return
+        }
         handlers.onMessage?.(data)
       })
     }
@@ -61,6 +72,7 @@ export function connectSSE(url, stageNames, handlers) {
     source.onerror = () => {
       if (closed) return
       source.close()
+      wasDisconnected = true
       handlers.onDisconnect?.()
       if (retries < MAX_RETRIES) {
         retries++

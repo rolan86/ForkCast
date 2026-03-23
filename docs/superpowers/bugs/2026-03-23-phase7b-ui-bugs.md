@@ -52,3 +52,104 @@ Discovered during manual UI testing on 2026-03-23 after Phase 7b merge.
 - **Root cause:** The expand panel only had a disabled "Generate Report" button. No way to select a different simulation.
 - **Fix:** Added context-aware action buttons in expand panel: "Run" for prepared sims, "View Actions" for completed sims, "Configure" for created/failed sims.
 - **Status:** [x] Fixed
+
+---
+
+## Bug 8: SSE JSON parse errors crash the message handler
+- **Where:** `frontend/src/lib/sse.js:41-46`
+- **Symptom:** If backend sends malformed SSE data, `JSON.parse` throws and the entire handler crashes silently
+- **Root cause:** No try-catch around `JSON.parse(event.data)` in the stage event listener
+- **Fix:** Wrapped in try-catch with `console.warn` — malformed events are logged and skipped
+- **Status:** [x] Fixed
+
+## Bug 9: Double-click or rapid navigation creates multiple SSE connections
+- **Where:** `frontend/src/views/SimulationTab.vue` — prepareSimulation, prepareExisting, startSimulation
+- **Symptom:** Clicking "Prepare" twice rapidly, or navigating away and back, opens duplicate SSE connections causing duplicate progress events
+- **Root cause:** No guard against concurrent invocations. Each call to `prepareSimulation`/`startSimulation` opens a new SSE without closing the previous one reliably.
+- **Fix:** Added `busy` ref guard on all SSE-initiating functions + `closePreviousSSE()` helper called before opening new connections
+- **Status:** [x] Fixed
+
+## Bug 10: SSE reconnection doesn't clear "Connection lost" error
+- **Where:** `frontend/src/lib/sse.js:72-82`, `frontend/src/views/SimulationTab.vue:133-136,179-182`
+- **Symptom:** After a temporary network blip, SSE reconnects and data flows again, but the "Connection lost" error message stays visible
+- **Root cause:** `onerror` sets `prepareError`/`runError = 'Connection lost'` via `onDisconnect`, but successful reconnection never clears it
+- **Fix:** Added `wasDisconnected` flag in `sse.js` set on error, cleared on first successful message post-reconnect which triggers `onReconnect` callback. SimulationTab handlers clear error refs in `onReconnect`.
+- **Status:** [x] Fixed
+
+---
+
+## Audit: Additional Bugs (identified 2026-03-23)
+
+### High Severity
+
+## Bug 11: Capabilities store not loaded before SimulationSettings renders
+- **Where:** `frontend/src/components/SimulationSettings.vue:14`, `frontend/src/stores/capabilities.js`
+- **Symptom:** Model dropdowns may be empty if capabilities haven't been fetched yet
+- **Root cause:** SimulationSettings uses `caps.models` immediately but doesn't trigger `fetchCapabilities()` — relies on parent having called it
+- **Status:** [ ] Open
+
+## Bug 12: Store state not reset between simulations
+- **Where:** `frontend/src/stores/project.js`
+- **Symptom:** Switching between simulations may show stale progress/actions from previous simulation
+- **Root cause:** `simPrepareProgress`, `simRunProgress`, `liveFeedActions` are global store state not scoped to a simulation ID
+- **Status:** [ ] Open
+
+## Bug 13: API error response shape not validated
+- **Where:** `frontend/src/api/simulations.js`
+- **Symptom:** If backend returns unexpected error shape, frontend may show `undefined` as error message
+- **Root cause:** API functions assume `resp.data.message` exists on error responses without validation
+- **Status:** [ ] Open
+
+## Bug 14: Graph rebuild doesn't warn about dependent simulations
+- **Where:** `frontend/src/views/GraphTab.vue`
+- **Symptom:** Rebuilding graph silently invalidates all existing simulations that reference the old graph
+- **Root cause:** No check for simulations referencing current graph before allowing rebuild
+- **Status:** [ ] Open
+
+### Medium Severity
+
+## Bug 15: No loading indicator when fetching simulation details
+- **Where:** `frontend/src/views/SimulationTab.vue:139-146`
+- **Symptom:** `loadPreparedState` makes an API call but shows no loading indicator — UI appears frozen
+- **Status:** [ ] Open
+
+## Bug 16: Completed view doesn't show actions_count or rounds from DB
+- **Where:** `frontend/src/views/SimulationTab.vue:468-469`
+- **Symptom:** Table shows `?` for rounds and `-` for actions because fields aren't populated
+- **Root cause:** Backend `list_simulations` doesn't include `rounds_completed`, `total_rounds`, or `actions_count` in the query
+- **Status:** [ ] Open
+
+## Bug 17: `showAllAgents` state persists across simulation switches
+- **Where:** `frontend/src/views/SimulationTab.vue:27,337`
+- **Symptom:** If "Show all agents" was expanded for one sim, it stays expanded for the next
+- **Root cause:** `showAllAgents` ref is never reset when simulation changes
+- **Status:** [ ] Open
+
+## Bug 18: SimulationConfigView receives null config gracefully but shows empty
+- **Where:** `frontend/src/components/SimulationConfigView.vue`
+- **Symptom:** When config is null/undefined, the component renders but shows nothing — no "not yet generated" message
+- **Status:** [ ] Open
+
+## Bug 19: Stop simulation has no error handling
+- **Where:** `frontend/src/views/SimulationTab.vue:185-188`
+- **Symptom:** If stop API fails, error is swallowed silently
+- **Root cause:** `stopSimulation()` doesn't catch errors
+- **Status:** [ ] Open
+
+### Low Severity
+
+## Bug 20: Expand panel in completed table lacks keyboard accessibility
+- **Where:** `frontend/src/views/SimulationTab.vue:456-461`
+- **Symptom:** Row click handler only works with mouse — no keyboard focus or Enter/Space handling
+- **Status:** [ ] Open
+
+## Bug 21: No confirmation before re-prepare
+- **Where:** `frontend/src/views/SimulationTab.vue:363`
+- **Symptom:** "Re-prepare" button triggers immediately without warning that it will regenerate profiles
+- **Status:** [ ] Open
+
+## Bug 22: `viewActions` function is incomplete
+- **Where:** `frontend/src/views/SimulationTab.vue:204-209`
+- **Symptom:** Clicking "View Actions" sets viewState to completed but doesn't load the actions
+- **Root cause:** TODO comment — function only sets state, doesn't fetch or display actions
+- **Status:** [ ] Open

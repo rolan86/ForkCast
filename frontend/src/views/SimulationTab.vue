@@ -34,6 +34,14 @@ const runErrorType = ref('')
 const runResumable = ref(false)
 
 let sseConnection = null
+const busy = ref(false)
+
+function closePreviousSSE() {
+  if (sseConnection) {
+    sseConnection.close()
+    sseConnection = null
+  }
+}
 
 const PREPARE_STEPS = [
   { label: 'Loading graph', stageNames: ['loading_graph'] },
@@ -67,13 +75,16 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  sseConnection?.close()
+  closePreviousSSE()
 })
 
 async function prepareSimulation() {
+  if (busy.value) return
+  busy.value = true
   prepareError.value = ''
   viewState.value = 'preparing'
   store.resetSimPrepareProgress()
+  closePreviousSSE()
 
   try {
     const sim = await simApi.createSimulation(projectId.value)
@@ -82,18 +93,25 @@ async function prepareSimulation() {
     connectPrepareSSE(sim.id)
   } catch (e) {
     prepareError.value = e.message
+  } finally {
+    busy.value = false
   }
 }
 
 async function prepareExisting() {
+  if (busy.value) return
+  busy.value = true
   prepareError.value = ''
   viewState.value = 'preparing'
   store.resetSimPrepareProgress()
+  closePreviousSSE()
   try {
     await simApi.prepareSim(currentSimId.value)
     connectPrepareSSE(currentSimId.value)
   } catch (e) {
     prepareError.value = e.message
+  } finally {
+    busy.value = false
   }
 }
 
@@ -115,6 +133,9 @@ function connectPrepareSSE(simId) {
     onDisconnect() {
       if (!prepareError.value) prepareError.value = 'Connection lost'
     },
+    onReconnect() {
+      prepareError.value = ''
+    },
   })
 }
 
@@ -128,13 +149,18 @@ async function loadPreparedState(simId) {
 }
 
 async function startSimulation() {
+  if (busy.value) return
+  busy.value = true
   viewState.value = 'running'
   store.resetSimRunProgress()
+  closePreviousSSE()
   try {
     await simApi.startSim(currentSimId.value)
     connectRunSSE(currentSimId.value)
   } catch (e) {
     runError.value = e.message
+  } finally {
+    busy.value = false
   }
 }
 
@@ -155,6 +181,9 @@ function connectRunSSE(simId) {
     },
     onDisconnect() {
       if (!runError.value) runError.value = 'Connection lost'
+    },
+    onReconnect() {
+      runError.value = ''
     },
   })
 }
