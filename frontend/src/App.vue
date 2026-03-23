@@ -1,8 +1,10 @@
 <script setup>
-import { provide, ref } from 'vue'
+import { onMounted, provide, ref } from 'vue'
 import AppShell from '@/components/AppShell.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
+import { useCapabilitiesStore } from '@/stores/capabilities.js'
 
+const capStore = useCapabilitiesStore()
 const toastRef = ref(null)
 
 function toast(message, type = 'info', duration) {
@@ -10,6 +12,8 @@ function toast(message, type = 'info', duration) {
 }
 
 provide('toast', toast)
+
+onMounted(() => capStore.fetch())
 </script>
 
 <template>
