@@ -64,10 +64,10 @@ class TestAvailableModels:
 
 
 class TestDBV3Migration:
-    def test_schema_version_is_3(self):
+    def test_schema_version_is_current(self):
         from forkcast.db.schema import SCHEMA_VERSION
 
-        assert SCHEMA_VERSION == 3
+        assert SCHEMA_VERSION >= 3
 
     def test_fresh_db_has_prep_model_column(self, tmp_db_path):
         from forkcast.db.connection import get_db, init_db
@@ -87,15 +87,16 @@ class TestDBV3Migration:
             columns = {row[1] for row in cursor.fetchall()}
             assert "run_model" in columns, f"run_model not found in columns: {columns}"
 
-    def test_fresh_db_version_is_3(self, tmp_db_path):
+    def test_fresh_db_version_is_current(self, tmp_db_path):
         from forkcast.db.connection import init_db
+        from forkcast.db.schema import SCHEMA_VERSION
 
         init_db(tmp_db_path)
         conn = sqlite3.connect(str(tmp_db_path))
         row = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
         conn.close()
         assert row is not None
-        assert row[0] == "3"
+        assert row[0] == str(SCHEMA_VERSION)
 
     def test_prep_model_is_nullable(self, tmp_db_path):
         """prep_model column should accept NULL (no default required)."""
@@ -182,9 +183,9 @@ class TestDBV3Migration:
             assert "run_model" in columns, f"run_model not found after migration: {columns}"
 
     def test_v2_to_v3_migration_updates_version(self, tmp_db_path):
-        """V2→V3 migration should update schema_version to 3."""
+        """V2→V3 migration should chain through to current schema version."""
         from forkcast.db.connection import init_db
-        from forkcast.db.schema import TABLES_V2
+        from forkcast.db.schema import SCHEMA_VERSION, TABLES_V2
 
         # Create a V2 database
         conn = sqlite3.connect(str(tmp_db_path))
@@ -200,7 +201,7 @@ class TestDBV3Migration:
         row = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
         conn.close()
         assert row is not None
-        assert row[0] == "3"
+        assert row[0] == str(SCHEMA_VERSION)
 
     def test_v2_to_v3_migration_preserves_existing_data(self, tmp_db_path):
         """V2→V3 migration should not lose existing simulation data."""

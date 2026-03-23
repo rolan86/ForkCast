@@ -2,6 +2,77 @@ import sqlite3
 from pathlib import Path
 
 
+class TestMigrationV3ToV4:
+    """Tests for V3 → V4 migration adding agent_mode column."""
+
+    def test_migration_adds_agent_mode_column(self, tmp_db_path):
+        """Migrating a V3 DB should add agent_mode column and bump version to 4."""
+        from forkcast.db.schema import TABLES_V3
+
+        # Create a V3 database manually
+        conn = sqlite3.connect(tmp_db_path)
+        conn.executescript(TABLES_V3)
+        conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '3')"
+        )
+        conn.commit()
+        conn.close()
+
+        # Run init_db which should trigger V3→V4 migration
+        from forkcast.db.connection import init_db
+
+        init_db(tmp_db_path)
+
+        conn = sqlite3.connect(tmp_db_path)
+        # Check schema version is now 4
+        row = conn.execute(
+            "SELECT value FROM meta WHERE key = 'schema_version'"
+        ).fetchone()
+        assert row[0] == "4"
+
+        # Check agent_mode column exists with default 'llm'
+        cols = [
+            info[1]
+            for info in conn.execute("PRAGMA table_info(simulations)").fetchall()
+        ]
+        assert "agent_mode" in cols
+
+        # Verify default value
+        conn.execute(
+            "INSERT INTO projects (id, domain, name, status, requirement, created_at) "
+            "VALUES ('p1', '_default', 'Test', 'created', 'req', datetime('now'))"
+        )
+        conn.execute(
+            "INSERT INTO simulations (id, project_id) VALUES ('s1', 'p1')"
+        )
+        row = conn.execute(
+            "SELECT agent_mode FROM simulations WHERE id = 's1'"
+        ).fetchone()
+        conn.close()
+        assert row[0] == "llm"
+
+    def test_fresh_db_has_agent_mode_column(self, tmp_db_path):
+        """A fresh database should include agent_mode column at version 4."""
+        from forkcast.db.connection import init_db
+
+        init_db(tmp_db_path)
+
+        conn = sqlite3.connect(tmp_db_path)
+        # Check version
+        row = conn.execute(
+            "SELECT value FROM meta WHERE key = 'schema_version'"
+        ).fetchone()
+        assert row[0] == "4"
+
+        # Check agent_mode column exists
+        cols = [
+            info[1]
+            for info in conn.execute("PRAGMA table_info(simulations)").fetchall()
+        ]
+        assert "agent_mode" in cols
+        conn.close()
+
+
 def test_init_db_creates_tables(tmp_db_path):
     """init_db should create all required tables."""
     from forkcast.db.connection import init_db
