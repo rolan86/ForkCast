@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useCapabilitiesStore } from '@/stores/capabilities.js'
 import { updateSettings } from '@/api/simulations.js'
 import PlatformBadge from './PlatformBadge.vue'
@@ -12,6 +12,7 @@ const props = defineProps({
 const emit = defineEmits(['updated'])
 
 const caps = useCapabilitiesStore()
+onMounted(() => caps.fetch())
 
 const engine = ref(props.simulation.engine_type || 'claude')
 const platforms = ref(props.simulation.platforms || ['twitter', 'reddit'])

@@ -383,7 +383,7 @@ function toggleFilter(type) {
     <ConfirmModal
       v-if="showRebuildModal"
       title="Rebuild Knowledge Graph?"
-      message="This will replace the existing graph. Existing simulations will not be affected."
+      message="This will build a new knowledge graph. Existing simulations keep their original graph data. New simulations will use the rebuilt graph."
       confirmLabel="Rebuild"
       variant="warning"
       @confirm="confirmRebuild"

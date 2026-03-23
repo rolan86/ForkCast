@@ -86,25 +86,28 @@ Discovered during manual UI testing on 2026-03-23 after Phase 7b merge.
 - **Where:** `frontend/src/components/SimulationSettings.vue:14`, `frontend/src/stores/capabilities.js`
 - **Symptom:** Model dropdowns may be empty if capabilities haven't been fetched yet
 - **Root cause:** SimulationSettings uses `caps.models` immediately but doesn't trigger `fetchCapabilities()` — relies on parent having called it
-- **Status:** [ ] Open
+- **Fix:** Added `onMounted(() => caps.fetch())` in SimulationSettings. `fetch()` is idempotent (no-op if already loaded).
+- **Status:** [x] Fixed
 
 ## Bug 12: Store state not reset between simulations
 - **Where:** `frontend/src/stores/project.js`
 - **Symptom:** Switching between simulations may show stale progress/actions from previous simulation
 - **Root cause:** `simPrepareProgress`, `simRunProgress`, `liveFeedActions` are global store state not scoped to a simulation ID
-- **Status:** [ ] Open
+- **Fix:** Added `store.resetSimPrepareProgress()` and `store.resetSimRunProgress()` calls in `loadAndNavigate()` and `viewActions()`.
+- **Status:** [x] Fixed
 
 ## Bug 13: API error response shape not validated
-- **Where:** `frontend/src/api/simulations.js`
+- **Where:** `frontend/src/api/client.js:17`
 - **Symptom:** If backend returns unexpected error shape, frontend may show `undefined` as error message
-- **Root cause:** API functions assume `resp.data.message` exists on error responses without validation
-- **Status:** [ ] Open
+- **Root cause:** Initially thought API functions didn't validate — but `client.js:17` already uses `body?.detail || body?.message || HTTP ${resp.status}` with optional chaining and fallback
+- **Status:** [x] Not a bug — already handled by client.js fallback chain
 
 ## Bug 14: Graph rebuild doesn't warn about dependent simulations
-- **Where:** `frontend/src/views/GraphTab.vue`
-- **Symptom:** Rebuilding graph silently invalidates all existing simulations that reference the old graph
-- **Root cause:** No check for simulations referencing current graph before allowing rebuild
-- **Status:** [ ] Open
+- **Where:** `frontend/src/views/GraphTab.vue:386`
+- **Symptom:** Rebuild warning says "Existing simulations will not be affected" — misleading
+- **Root cause:** Message was technically correct (old sims keep their graph_id) but unclear about behavior
+- **Fix:** Updated message to: "This will build a new knowledge graph. Existing simulations keep their original graph data. New simulations will use the rebuilt graph."
+- **Status:** [x] Fixed
 
 ### Medium Severity
 

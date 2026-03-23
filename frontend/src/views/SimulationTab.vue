@@ -199,6 +199,8 @@ function newSimulation() {
 
 async function loadAndNavigate(sim) {
   currentSimId.value = sim.id
+  store.resetSimPrepareProgress()
+  store.resetSimRunProgress()
   if (sim.status === 'prepared') {
     await loadPreparedState(sim.id)
   } else if (sim.status === 'created' || sim.status === 'failed') {
@@ -210,6 +212,8 @@ async function loadAndNavigate(sim) {
 async function viewActions(sim) {
   currentSimId.value = sim.id
   currentSimulation.value = sim
+  store.resetSimPrepareProgress()
+  store.resetSimRunProgress()
   // TODO: load and display actions for this simulation
   viewState.value = 'completed'
 }
