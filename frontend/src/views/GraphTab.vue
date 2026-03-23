@@ -141,14 +141,14 @@ function renderGraph() {
   const nodes = graphData.value.nodes.map(n => ({ ...n }))
   const edges = graphData.value.edges.map(e => ({ ...e }))
 
-  const connCounts = {}
+  _connCounts = {}
   edges.forEach(e => {
-    connCounts[e.source] = (connCounts[e.source] || 0) + 1
-    connCounts[e.target] = (connCounts[e.target] || 0) + 1
+    _connCounts[e.source] = (_connCounts[e.source] || 0) + 1
+    _connCounts[e.target] = (_connCounts[e.target] || 0) + 1
   })
 
   function nodeRadius(id) {
-    return 8 + Math.min((connCounts[id] || 0) * 1.5, 12)
+    return nodeRadiusFor(id)
   }
 
   const useCanvas = nodes.length > 150
@@ -270,6 +270,45 @@ function toggleFilter(type) {
   if (idx >= 0) activeFilters.value.splice(idx, 1)
   else activeFilters.value.push(type)
 }
+
+// Wire search + filters into D3 visualization
+function applySearchAndFilters() {
+  if (!svgContainer.value || !graphData.value) return
+  const container = d3.select(svgContainer.value)
+  const query = searchQuery.value.toLowerCase().trim()
+  const filters = activeFilters.value
+
+  container.selectAll('circle').each(function (d) {
+    const matchesSearch = !query || d.id.toLowerCase().includes(query) || (d.type || '').toLowerCase().includes(query)
+    const matchesFilter = !filters.length || filters.includes(d.type)
+    const visible = matchesSearch && matchesFilter
+    d3.select(this)
+      .attr('opacity', visible ? 0.85 : 0.1)
+      .attr('r', visible && query && d.id.toLowerCase().includes(query) ? nodeRadiusFor(d.id) * 1.5 : nodeRadiusFor(d.id))
+  })
+  container.selectAll('.node-label').each(function (d) {
+    const matchesSearch = !query || d.id.toLowerCase().includes(query) || (d.type || '').toLowerCase().includes(query)
+    const matchesFilter = !filters.length || filters.includes(d.type)
+    d3.select(this).attr('opacity', matchesSearch && matchesFilter ? 1 : 0.1)
+  })
+  container.selectAll('line').each(function (d) {
+    const srcId = d.source.id || d.source
+    const tgtId = d.target.id || d.target
+    const srcNode = graphData.value.nodes.find(n => n.id === srcId)
+    const tgtNode = graphData.value.nodes.find(n => n.id === tgtId)
+    const srcMatch = (!query || srcId.toLowerCase().includes(query)) && (!filters.length || filters.includes(srcNode?.type))
+    const tgtMatch = (!query || tgtId.toLowerCase().includes(query)) && (!filters.length || filters.includes(tgtNode?.type))
+    d3.select(this).attr('opacity', srcMatch || tgtMatch ? 1 : 0.05)
+  })
+}
+
+// Store nodeRadius function for reuse in search highlighting
+let _connCounts = {}
+function nodeRadiusFor(id) {
+  return 8 + Math.min((_connCounts[id] || 0) * 1.5, 12)
+}
+
+watch([searchQuery, activeFilters], applySearchAndFilters, { deep: true })
 </script>
 
 <template>

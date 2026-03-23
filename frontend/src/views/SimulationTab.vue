@@ -227,12 +227,22 @@ async function viewActions(sim) {
   store.resetSimPrepareProgress()
   store.resetSimRunProgress()
   try {
+    const fullSim = await simApi.getSimulation(sim.id)
+    simConfig.value = fullSim.config || null
+    agents.value = simConfig.value?.profiles || []
+    const platforms_ = Array.isArray(fullSim.platforms) ? fullSim.platforms : (simConfig.value?.platforms || ['twitter'])
+    if (platforms_.length) activePlatformTab.value = platforms_[0]
     const actions = await simApi.getActions(sim.id)
     store.liveFeedActions.splice(0, store.liveFeedActions.length, ...actions)
   } catch (e) {
     console.warn('Failed to load actions:', e.message)
   }
+  viewState.value = 'viewing'
+}
+
+function backToList() {
   viewState.value = 'completed'
+  store.liveFeedActions.splice(0)
 }
 
 const graphBuilt = computed(() => store.currentGraph?.status === 'complete' || store.currentGraph?.status === 'built')
@@ -468,6 +478,55 @@ function formatDate(d) {
       @confirm="stopSimulation"
       @cancel="showStopModal = false"
     />
+  </div>
+
+  <!-- Viewing historical actions -->
+  <div v-else-if="viewState === 'viewing'" class="flex flex-col h-full">
+    <div class="px-6 py-4 flex items-center justify-between" :style="{ borderBottom: '1px solid var(--border)' }">
+      <div class="flex items-center gap-4">
+        <button
+          class="px-3 py-1.5 rounded-md text-sm border"
+          :style="{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }"
+          @click="backToList"
+        >&larr; Back</button>
+        <div>
+          <h3 class="text-base font-semibold" :style="{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }">
+            Simulation #{{ currentSimId?.slice(-6) }}
+          </h3>
+          <span class="text-xs" :style="{ color: 'var(--text-tertiary)' }">{{ currentSimulation?.engine_type }} engine</span>
+        </div>
+      </div>
+      <span
+        class="text-xs px-2 py-0.5 rounded font-medium"
+        :style="{ backgroundColor: '#dcfce7', color: '#16a34a' }"
+      >Complete</span>
+    </div>
+
+    <div class="grid grid-cols-3 gap-3 px-4 pt-4">
+      <StatCard label="Actions" :value="store.liveFeedActions.length" icon="Zap" />
+      <StatCard label="Agents" :value="agents.length || '—'" icon="Users" />
+      <StatCard label="Action Types" :value="actionTypesCount" icon="Layers" />
+    </div>
+
+    <div v-if="platforms.length > 1" class="flex gap-1 px-4 pt-3">
+      <button
+        v-for="p in platforms"
+        :key="p"
+        class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
+        :style="{
+          backgroundColor: activePlatformTab === p ? 'var(--accent-surface)' : 'transparent',
+          color: activePlatformTab === p ? 'var(--accent)' : 'var(--text-secondary)',
+        }"
+        @click="activePlatformTab = p"
+      >
+        <PlatformBadge :platform="p" size="sm" />
+        <span class="ml-1 text-xs" :style="{ fontFamily: 'var(--font-mono)' }">{{ platformActionCount(p) }}</span>
+      </button>
+    </div>
+
+    <div class="flex-1 p-4">
+      <LiveFeed :actions="filteredActions" :platform="activePlatformTab" />
+    </div>
   </div>
 
   <!-- Completed -->

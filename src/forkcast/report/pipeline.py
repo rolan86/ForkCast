@@ -300,11 +300,13 @@ def generate_report(
 
             # Process tool calls
             tool_rounds += 1
+            tool_names = [tc["name"] for tc in response.tool_calls]
             _emit(
                 on_progress,
                 stage="tool_use",
-                message=f"Round {tool_rounds}: executing {len(response.tool_calls)} tool(s)...",
+                message=f"Round {tool_rounds}: {', '.join(tool_names)}",
                 tool_round=tool_rounds,
+                tools=tool_names,
             )
 
             tool_results: list[dict[str, Any]] = []
