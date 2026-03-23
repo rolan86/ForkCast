@@ -14,8 +14,7 @@ from forkcast.simulation.oasis_engine import (
     OasisEngine,
     _convert_profiles_to_twitter_csv,
     _convert_profiles_to_reddit_json,
-    _monitor_actions_file,
-    _parse_oasis_action,
+    _trace_row_to_action,
 )
 
 
@@ -116,64 +115,42 @@ class TestConvertProfilesToRedditJSON:
         assert "interests" not in data[0]
 
 
-class TestParseOasisAction:
-    def test_parse_tweet(self):
-        raw = {"action": "tweet", "content": "Hello", "agent_id": 0, "round": 1, "timestamp": "2026-03-20T10:00:00Z"}
-        action = _parse_oasis_action(raw, platform="twitter")
+class TestExtractTraceActions:
+    def test_create_post(self):
+        profiles = _make_profiles(2)
+        row = {"user_id": 0, "action": "create_post", "info": json.dumps({"content": "Hello"}), "created_at": "2026-03-20T10:00:00Z"}
+        action = _trace_row_to_action(row, round_num=1, platform="twitter", profiles=profiles)
         assert action.action_type == ActionType.CREATE_POST
         assert action.action_args["content"] == "Hello"
         assert action.platform == "twitter"
+        assert action.agent_name == "Agent0"
+        assert action.round == 1
 
-    def test_parse_like(self):
-        raw = {"action": "like", "post_id": 5, "agent_id": 1, "round": 2, "timestamp": "2026-03-20T10:01:00Z"}
-        action = _parse_oasis_action(raw, platform="twitter")
+    def test_like_post_with_agent_name_lookup(self):
+        profiles = _make_profiles(3)
+        row = {"user_id": 1, "action": "like_post", "info": "{}", "created_at": "2026-03-20T10:01:00Z"}
+        action = _trace_row_to_action(row, round_num=2, platform="twitter", profiles=profiles)
         assert action.action_type == ActionType.LIKE_POST
+        assert action.agent_name == "Agent1"
 
-    def test_parse_reply(self):
-        raw = {"action": "reply", "post_id": 3, "content": "Great!", "agent_id": 2, "round": 1, "timestamp": "2026-03-20T10:00:00Z"}
-        action = _parse_oasis_action(raw, platform="reddit")
-        assert action.action_type == ActionType.CREATE_COMMENT
-        assert action.platform == "reddit"
+    def test_repost_maps_to_create_post(self):
+        profiles = _make_profiles(1)
+        row = {"user_id": 0, "action": "repost", "info": "{}", "created_at": ""}
+        action = _trace_row_to_action(row, round_num=1, platform="twitter", profiles=profiles)
+        assert action.action_type == ActionType.CREATE_POST
 
-    def test_parse_unknown_action(self):
-        raw = {"action": "unknown_thing", "agent_id": 0, "round": 1, "timestamp": "2026-03-20T10:00:00Z"}
-        action = _parse_oasis_action(raw, platform="twitter")
+    def test_unknown_action_maps_to_do_nothing(self):
+        profiles = _make_profiles(1)
+        row = {"user_id": 0, "action": "unknown_thing", "info": "{}", "created_at": ""}
+        action = _trace_row_to_action(row, round_num=1, platform="twitter", profiles=profiles)
         assert action.action_type == ActionType.DO_NOTHING
 
-
-class TestMonitorActionsFile:
-    def test_monitor_reads_new_lines(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-            path = Path(f.name)
-
-        try:
-            actions_received = []
-            stop_event = threading.Event()
-
-            def on_action(action):
-                actions_received.append(action)
-                if len(actions_received) >= 2:
-                    stop_event.set()
-
-            # Start monitor in background
-            t = threading.Thread(
-                target=_monitor_actions_file,
-                args=(path, "twitter", on_action, stop_event),
-            )
-            t.start()
-
-            # Write actions after a brief delay
-            time.sleep(0.1)
-            with open(path, "a") as f:
-                f.write(json.dumps({"action": "tweet", "content": "Hello", "agent_id": 0, "round": 1, "timestamp": "2026-03-20T10:00:00Z"}) + "\n")
-                f.write(json.dumps({"action": "like", "post_id": 0, "agent_id": 1, "round": 1, "timestamp": "2026-03-20T10:00:01Z"}) + "\n")
-                f.flush()
-
-            t.join(timeout=5)
-            assert len(actions_received) >= 2
-            assert actions_received[0].action_type == ActionType.CREATE_POST
-        finally:
-            path.unlink(missing_ok=True)
+    def test_do_nothing_action(self):
+        profiles = _make_profiles(1)
+        row = {"user_id": 0, "action": "do_nothing", "info": "{}", "created_at": ""}
+        action = _trace_row_to_action(row, round_num=1, platform="reddit", profiles=profiles)
+        assert action.action_type == ActionType.DO_NOTHING
+        assert action.platform == "reddit"
 
 
 class TestOasisEngine:
