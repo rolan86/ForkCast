@@ -217,27 +217,34 @@ def run_simulation(
                 # Deferred import -- OASIS is an optional dependency
                 from forkcast.simulation.oasis_engine import OasisEngine
 
-                _progress(stage="running", engine="oasis")
-                for platform in platforms:
+                agent_mode = sim["agent_mode"] or "llm"
+                _progress(stage="running", engine="oasis", agent_mode=agent_mode)
+
+                completed_platforms: list[str] = []
+                for pi, platform in enumerate(platforms):
                     if stop_event is not None and stop_event.is_set():
                         break
 
                     oasis_engine = OasisEngine(sim_dir=sim_dir)
-                    # Wire stop_event: spawn a monitor thread that checks the event
+
+                    # Wire stop_event
                     if stop_event is not None:
                         def _oasis_stop_monitor(eng=oasis_engine):
                             stop_event.wait()
                             eng.stop()
-
                         stop_thread = threading.Thread(target=_oasis_stop_monitor, daemon=True)
                         stop_thread.start()
+
                     engine_result = oasis_engine.run(
                         profiles=profiles,
                         config=config,
                         platform=platform,
+                        agent_mode=agent_mode,
                         on_action=on_action,
                         on_round=on_round,
+                        on_round_complete=lambda r, t: None,
                     )
+                    completed_platforms.append(platform)
             else:
                 raise ValueError(f"Unknown engine type: {engine_type}")
         finally:
