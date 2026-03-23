@@ -7,11 +7,14 @@ router = APIRouter(prefix="/api", tags=["capabilities"])
 
 
 def _check_oasis() -> dict:
+    result = {"agent_modes": ["llm", "native"]}
     try:
         import oasis  # noqa: F401
-        return {"available": True}
+        result["available"] = True
     except ImportError:
-        return {"available": False, "reason": "camel-oasis not installed"}
+        result["available"] = False
+        result["reason"] = "camel-oasis not installed"
+    return result
 
 
 @router.get("/capabilities")

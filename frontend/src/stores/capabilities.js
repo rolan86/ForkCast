@@ -12,6 +12,9 @@ export const useCapabilitiesStore = defineStore('capabilities', {
     isOasisAvailable(state) {
       return state.engines?.oasis?.available === true
     },
+    oasisAgentModes(state) {
+      return state.engines?.oasis?.agent_modes || []
+    },
     modelOptions(state) {
       return state.models.map(m => ({ value: m.id, label: m.label }))
     },

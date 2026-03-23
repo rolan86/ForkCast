@@ -49,3 +49,11 @@ class TestCapabilitiesEndpoint:
         assert "available" in oasis
         if not oasis["available"]:
             assert "reason" in oasis
+
+    @pytest.mark.asyncio
+    async def test_oasis_includes_agent_modes(self, client):
+        """Capabilities response includes agent_modes for oasis engine."""
+        resp = await client.get("/api/capabilities")
+        data = resp.json()["data"]
+        oasis = data["engines"]["oasis"]
+        assert oasis["agent_modes"] == ["llm", "native"]
