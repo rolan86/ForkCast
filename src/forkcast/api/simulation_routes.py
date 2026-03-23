@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import math
 import secrets
 import threading
 from datetime import datetime, timezone
@@ -23,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/simulations", tags=["simulations"])
 
+_VALID_AGENT_MODES = {"llm", "native"}
+
 # Per-simulation progress queues. Created on POST /prepare, consumed by GET /prepare/stream.
 _prepare_queues: dict[str, asyncio.Queue] = {}
 
@@ -31,6 +34,7 @@ class CreateSimulationRequest(BaseModel):
     project_id: str
     engine_type: str | None = None
     platforms: list[str] | None = None
+    agent_mode: str | None = None  # "llm" or "native"
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -38,6 +42,7 @@ class UpdateSettingsRequest(BaseModel):
     platforms: list[str] | None = None
     prep_model: str | None = None
     run_model: str | None = None
+    agent_mode: str | None = None  # "llm" or "native"
 
 
 @router.post("")
@@ -66,6 +71,10 @@ async def create_simulation(req: CreateSimulationRequest):
     engine_type = req.engine_type if req.engine_type is not None else default_engine
     platforms = req.platforms if req.platforms is not None else default_platforms
 
+    agent_mode = req.agent_mode or "llm"
+    if agent_mode not in _VALID_AGENT_MODES:
+        return error(f"Invalid agent_mode: {agent_mode}. Must be one of: {_VALID_AGENT_MODES}", status_code=400)
+
     # Find the latest graph for this project
     with get_db(settings.db_path) as conn:
         graph = conn.execute(
@@ -80,9 +89,9 @@ async def create_simulation(req: CreateSimulationRequest):
 
     with get_db(settings.db_path) as conn:
         conn.execute(
-            "INSERT INTO simulations (id, project_id, graph_id, status, engine_type, platforms, created_at) "
-            "VALUES (?, ?, ?, 'created', ?, ?, ?)",
-            (sim_id, req.project_id, graph_id, engine_type, json.dumps(platforms), now),
+            "INSERT INTO simulations (id, project_id, graph_id, status, engine_type, platforms, agent_mode, created_at) "
+            "VALUES (?, ?, ?, 'created', ?, ?, ?, ?)",
+            (sim_id, req.project_id, graph_id, engine_type, json.dumps(platforms), agent_mode, now),
         )
 
     return success(
@@ -93,6 +102,7 @@ async def create_simulation(req: CreateSimulationRequest):
             "status": "created",
             "engine_type": engine_type,
             "platforms": platforms,
+            "agent_mode": agent_mode,
             "created_at": now,
         },
         status_code=201,
@@ -106,7 +116,7 @@ async def list_simulations():
     with get_db(settings.db_path) as conn:
         rows = conn.execute(
             "SELECT s.id, s.project_id, s.graph_id, s.status, s.engine_type, "
-            "s.platforms, s.config_json, s.created_at, s.updated_at, "
+            "s.platforms, s.agent_mode, s.config_json, s.created_at, s.updated_at, "
             "COUNT(a.id) AS actions_count, MAX(a.round) AS rounds_completed "
             "FROM simulations s "
             "LEFT JOIN simulation_actions a ON a.simulation_id = s.id "
@@ -118,12 +128,15 @@ async def list_simulations():
     for row in rows:
         d = dict(row)
         d["platforms"] = json.loads(d["platforms"]) if d["platforms"] else []
-        # Extract total_rounds from config_json if available
+        # Compute total_rounds from config's total_hours / minutes_per_round
         total_rounds = None
         if d.get("config_json"):
             try:
                 config = json.loads(d["config_json"])
-                total_rounds = config.get("rounds")
+                total_hours = config.get("total_hours")
+                minutes_per_round = config.get("minutes_per_round")
+                if total_hours and minutes_per_round:
+                    total_rounds = math.ceil(total_hours * 60 / minutes_per_round)
             except (json.JSONDecodeError, TypeError):
                 pass
         d["total_rounds"] = total_rounds
@@ -185,6 +198,11 @@ async def update_settings(simulation_id: str, req: UpdateSettingsRequest):
     if req.run_model is not None:
         updates.append("run_model = ?")
         params.append(req.run_model)
+    if req.agent_mode is not None:
+        if req.agent_mode not in _VALID_AGENT_MODES:
+            return error(f"Invalid agent_mode: {req.agent_mode}. Must be one of: {_VALID_AGENT_MODES}", status_code=400)
+        updates.append("agent_mode = ?")
+        params.append(req.agent_mode)
 
     if not updates:
         return success({"updated": False})

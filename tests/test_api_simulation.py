@@ -147,3 +147,93 @@ class TestListSimulations:
         assert response.status_code == 200
         data = response.json()["data"]
         assert len(data) >= 1
+
+    @pytest.mark.asyncio
+    async def test_list_simulations_includes_agent_mode(self, app, tmp_db_path):
+        project_id = _insert_project_with_graph(tmp_db_path)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            await client.post("/api/simulations", json={
+                "project_id": project_id,
+                "agent_mode": "native",
+            })
+            response = await client.get("/api/simulations")
+
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert len(data) >= 1
+        assert data[0]["agent_mode"] == "native"
+
+
+class TestAgentMode:
+    @pytest.mark.asyncio
+    async def test_create_with_agent_mode_native(self, app, tmp_db_path):
+        project_id = _insert_project_with_graph(tmp_db_path)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/simulations", json={
+                "project_id": project_id,
+                "agent_mode": "native",
+            })
+
+        assert response.status_code == 201
+        data = response.json()["data"]
+        assert data["agent_mode"] == "native"
+
+    @pytest.mark.asyncio
+    async def test_create_without_agent_mode_defaults_to_llm(self, app, tmp_db_path):
+        project_id = _insert_project_with_graph(tmp_db_path)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/simulations", json={
+                "project_id": project_id,
+            })
+
+        assert response.status_code == 201
+        data = response.json()["data"]
+        assert data["agent_mode"] == "llm"
+
+    @pytest.mark.asyncio
+    async def test_create_with_invalid_agent_mode(self, app, tmp_db_path):
+        project_id = _insert_project_with_graph(tmp_db_path)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/simulations", json={
+                "project_id": project_id,
+                "agent_mode": "invalid_mode",
+            })
+
+        assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_update_settings_agent_mode(self, app, tmp_db_path):
+        project_id = _insert_project_with_graph(tmp_db_path)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            create_resp = await client.post("/api/simulations", json={
+                "project_id": project_id,
+            })
+            sim_id = create_resp.json()["data"]["id"]
+
+            response = await client.patch(f"/api/simulations/{sim_id}/settings", json={
+                "agent_mode": "native",
+            })
+
+        assert response.status_code == 200
+        assert response.json()["data"]["updated"] is True
+
+    @pytest.mark.asyncio
+    async def test_update_settings_invalid_agent_mode(self, app, tmp_db_path):
+        project_id = _insert_project_with_graph(tmp_db_path)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            create_resp = await client.post("/api/simulations", json={
+                "project_id": project_id,
+            })
+            sim_id = create_resp.json()["data"]["id"]
+
+            response = await client.patch(f"/api/simulations/{sim_id}/settings", json={
+                "agent_mode": "bogus",
+            })
+
+        assert response.status_code == 400
