@@ -42,4 +42,13 @@ export async function apiPostMultipart(url, formData) {
   return handleResponse(resp)
 }
 
+export async function apiPatch(url, data) {
+  const resp = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  return handleResponse(resp)
+}
+
 export { ApiError }

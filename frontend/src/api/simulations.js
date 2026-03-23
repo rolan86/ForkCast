@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from './client.js'
+import { apiGet, apiPost, apiPatch } from './client.js'
 import { connectSSE, SSE_STAGES } from '@/lib/sse.js'
 
 export async function createSimulation(projectId, options = {}) {
@@ -21,8 +21,13 @@ export async function listSimulations() {
   return resp.data
 }
 
-export async function prepareSim(id) {
-  const resp = await apiPost(`/api/simulations/${id}/prepare`)
+export async function updateSettings(simId, settings) {
+  const resp = await apiPatch(`/api/simulations/${simId}/settings`, settings)
+  return resp.data
+}
+
+export async function prepareSim(id, options = {}) {
+  const resp = await apiPost(`/api/simulations/${id}/prepare`, options)
   return resp.data
 }
 
