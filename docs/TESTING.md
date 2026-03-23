@@ -25,7 +25,7 @@ cp .env.example .env
 
 ## Part 1: Automated Tests (No API Key Required)
 
-Run the full test suite — 348 tests covering all backend logic, API endpoints, SSE streaming, frontend build output, and frontend-backend contract verification.
+Run the full test suite — 412 tests covering all backend logic, API endpoints, SSE streaming, frontend build output, frontend-backend contract verification, simulation settings, checkpoint/resume, and error classification.
 
 ```bash
 uv run pytest -q
@@ -33,13 +33,13 @@ uv run pytest -q
 
 **Expected output:**
 ```
-348 passed in ~15s
+412 passed in ~15s
 ```
 
-To run only the e2e integration tests:
+To run the e2e integration tests:
 
 ```bash
-uv run pytest tests/test_e2e_phase7a.py -v
+uv run pytest tests/test_e2e_phase7a.py tests/test_e2e_phase7b.py -v
 ```
 
 **Expected output:**
@@ -67,7 +67,35 @@ tests/test_e2e_phase7a.py::TestFrontendBackendContract::test_simulation_response
 tests/test_e2e_phase7a.py::TestFrontendBackendContract::test_graph_metadata_has_frontend_required_fields PASSED
 tests/test_e2e_phase7a.py::TestFrontendBackendContract::test_domains_response_has_frontend_required_fields PASSED
 
-22 passed in ~3s
+28 passed in ~3s
+```
+
+Phase 7b-specific tests can be run individually:
+
+```bash
+# Simulation settings (engine, platforms, model selection)
+uv run pytest tests/test_simulation_settings.py -v
+
+# smart_call() dispatch (model routing to think/complete)
+uv run pytest tests/test_smart_call.py -v
+
+# Profile reuse across simulations
+uv run pytest tests/test_profile_reuse.py -v
+
+# Checkpoint system and run resume
+uv run pytest tests/test_run_resume.py -v
+
+# Error classification
+uv run pytest tests/test_error_classification.py -v
+
+# Prepare pipeline (model selection + profile reuse wiring)
+uv run pytest tests/test_prepare_resume.py -v
+
+# SimulationState serialization (to_dict/from_dict)
+uv run pytest tests/test_state_serialization.py -v
+
+# Capabilities API endpoint
+uv run pytest tests/test_api_capabilities.py -v
 ```
 
 **Note:** The `TestFrontendBuild` tests require a prior `npm run build` in `frontend/`. If they fail, run:
@@ -187,17 +215,55 @@ curl http://localhost:8000/api/projects/YOUR_PROJECT_ID/graph/data | python -m j
 }
 ```
 
-### Step 8: Create and prepare a simulation
+### Step 8: Check capabilities
+
+```bash
+curl http://localhost:8000/api/capabilities | python -m json.tool
+```
+
+**Expected output:**
+```json
+{
+    "success": true,
+    "data": {
+        "engines": ["claude", "oasis"],
+        "oasis_available": false,
+        "models": [
+            {"id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4", "supports_thinking": true},
+            {"id": "claude-haiku-4-5-20251001", "name": "Claude Haiku 4.5", "supports_thinking": false}
+        ]
+    }
+}
+```
+
+### Step 9: Create and configure a simulation
 
 1. Click the **"Simulations"** tab
 2. Click **"New Simulation"**
-3. Click **"Prepare"** on the created simulation
+3. Before preparing, configure settings in the **Settings panel**:
+   - **Engine**: Select "Claude" or "OASIS" (OASIS only available if installed)
+   - **Platforms**: Toggle Twitter/Reddit on or off
+   - **Prep Model**: Select model for profile/config generation (e.g., Haiku for speed)
+   - **Run Model**: Select model for simulation execution
+   - **Profile Reuse**: Toggle on to reuse profiles from prior simulations with the same graph
+4. Click **"Save Settings"**
+
+**Expected:**
+- Settings persist (verify via `GET /api/simulations/{id}`)
+- Settings panel shows saved values on reload
+
+### Step 10: Prepare the simulation
+
+1. Click **"Prepare"** on the configured simulation
 
 **Expected:**
 - Progress panel shows SSE-streamed preparation stages (profile generation, config generation)
-- When complete, status changes to "prepared" with a "Run" button
+- If prep_model is set to Haiku, `smart_call()` routes to `complete()` (no extended thinking)
+- If profile reuse is active and a prior simulation with the same graph exists, profiles are copied instantly
+- When complete, the **Config View** panel shows generated simulation parameters (timing, hot topics, seed posts)
+- Status changes to "prepared" with a "Run" button
 
-### Step 9: Run the simulation
+### Step 11: Run the simulation
 
 1. Click **"Run"** on the prepared simulation
 
@@ -205,8 +271,45 @@ curl http://localhost:8000/api/projects/YOUR_PROJECT_ID/graph/data | python -m j
 - Live feed panel shows real-time agent actions
 - Platform badges (Twitter/Reddit) indicate which platform each action is on
 - Agent avatars with deterministic gradient colors appear next to each action
+- **Checkpoint files** are written after each round (`data/{sim_id}/checkpoint.json`)
+- Clicking **"Stop"** halts the simulation gracefully after the current round
 
-### Step 10: Toggle theme
+### Step 12: Verify checkpoint system (API)
+
+While a simulation is running:
+
+```bash
+# Check checkpoint exists
+cat data/{simulation_id}/checkpoint.json
+```
+
+**Expected:**
+```json
+{"last_completed_round": 3, "total_rounds": 96, "platform": "twitter", "platform_index": 0, "completed_platforms": []}
+```
+
+After completion, checkpoint files are automatically cleaned up.
+
+### Step 13: Test profile reuse
+
+1. Create a **second simulation** for the same project (same graph)
+2. Prepare it
+
+**Expected:**
+- Profiles are copied from the first simulation (instant, no LLM calls)
+- Progress shows "reused" indicator
+- The profiles are identical (can verify by diffing `data/{sim1}/profiles/agents.json` and `data/{sim2}/profiles/agents.json`)
+
+### Step 14: Test error handling in UI
+
+If the API key is invalid or an LLM call fails during prepare:
+
+**Expected:**
+- ProgressPanel shows a color-coded error message
+- If the error is resumable (e.g., rate limit), a "Resume" button appears
+- If not resumable, a "Start Over" button appears
+
+### Step 15: Toggle theme
 
 Click the **sun/moon icon** at the bottom of the icon rail.
 
