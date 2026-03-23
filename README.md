@@ -11,7 +11,7 @@ Upload seed materials (reports, articles, research), describe what you want to p
 ## Architecture
 
 - **Domain plugins** — File-based domains (manifest + prompts) make ForkCast adaptable to any prediction vertical
-- **Dual simulation engines** — Claude (in-process, tool_use-driven) and OASIS (subprocess, file-based IPC), selectable per domain
+- **Dual simulation engines** — Claude (in-process, tool_use-driven) and OASIS (in-process, camel-oasis API), selectable per domain
 - **Knowledge graphs** — NetworkX + ChromaDB for entity extraction and relationship mapping
 - **Real-time streaming** — SSE for live simulation progress
 - **API-first** — Headless FastAPI backend, CLI interface, UI optional
@@ -25,6 +25,10 @@ pip install -e .
 # Configure
 cp .env.example .env
 # Set ANTHROPIC_API_KEY in .env
+
+# Optional: Install OASIS engine support
+uv pip install --no-deps camel-oasis
+uv pip install "camel-ai>=0.2.78" igraph pandas neo4j cairocffi prance openapi-spec-validator requests-oauthlib slack-sdk unstructured
 
 # Run the API server
 forkcast server start

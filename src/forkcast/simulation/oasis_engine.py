@@ -171,7 +171,7 @@ class OasisEngine:
             )
 
         # Bridge ForkCast LLM config to camel-ai env vars
-        self._bridge_llm_config()
+        self._bridge_llm_config(agent_mode)
 
         # Build model for LLM mode
         model = None
@@ -245,12 +245,23 @@ class OasisEngine:
             "total_actions": total_actions,
         }
 
-    def _bridge_llm_config(self) -> None:
-        """Bridge ForkCast LLM settings to camel-ai expected env vars."""
-        llm_key = os.environ.get("LLM_API_KEY", "")
+    def _bridge_llm_config(self, agent_mode: str) -> None:
+        """Bridge ForkCast LLM settings to camel-ai expected env vars.
+
+        OASIS validates OPENAI_API_KEY even in native mode (during agent graph
+        creation). We check LLM_API_KEY first, then ANTHROPIC_API_KEY, and
+        finally set a placeholder for native mode if nothing else is available.
+        """
+        llm_key = (
+            os.environ.get("LLM_API_KEY", "")
+            or os.environ.get("ANTHROPIC_API_KEY", "")
+        )
         llm_base = os.environ.get("LLM_BASE_URL", "")
         if llm_key:
             os.environ["OPENAI_API_KEY"] = llm_key
+        elif agent_mode == "native" and not os.environ.get("OPENAI_API_KEY"):
+            # Native mode won't call the LLM, but OASIS still validates the key
+            os.environ["OPENAI_API_KEY"] = "sk-placeholder-native-mode"
         if llm_base:
             os.environ["OPENAI_API_BASE_URL"] = llm_base
 
@@ -266,7 +277,12 @@ class OasisEngine:
         return None
 
     def _build_native_actions(self, agent_graph, round_num, config, platform, oasis_module):
-        """Build rule-based ManualAction for each agent in native mode."""
+        """Build rule-based ManualAction for each agent in native mode.
+
+        agent_graph.get_agents() yields (agent_id, SocialAgent) tuples.
+        env.step() expects {SocialAgent: ManualAction} — keys must be agent objects.
+        ManualAction always requires action_args (even for DO_NOTHING).
+        """
         import random
         try:
             from oasis.social_platform.typing import ActionType as OasisActionType
@@ -274,7 +290,8 @@ class OasisEngine:
             return {}
 
         actions = {}
-        agents = list(agent_graph.get_agents()) if hasattr(agent_graph, 'get_agents') else []
+        # get_agents() returns (agent_id: int, agent_obj: SocialAgent) tuples
+        agent_pairs = list(agent_graph.get_agents()) if hasattr(agent_graph, 'get_agents') else []
 
         hour_in_sim = (round_num * config.minutes_per_round / 60) % 24
         if int(hour_in_sim) in config.peak_hours:
@@ -284,8 +301,7 @@ class OasisEngine:
         else:
             activity_mult = 1.0
 
-        for agent in agents:
-            agent_id = getattr(agent, 'agent_id', None) or getattr(agent, 'user_id', 0)
+        for agent_id, agent_obj in agent_pairs:
             agent_cfg = None
             for ac in config.agent_configs:
                 if ac.get("agent_id") == agent_id:
@@ -295,7 +311,9 @@ class OasisEngine:
             activity_level = (agent_cfg or {}).get("activity_level", 0.5)
             if random.random() > activity_level * activity_mult:
                 try:
-                    actions[agent] = oasis_module.ManualAction(action_type=OasisActionType.DO_NOTHING)
+                    actions[agent_obj] = oasis_module.ManualAction(
+                        action_type=OasisActionType.DO_NOTHING, action_args={},
+                    )
                 except Exception:
                     pass
                 continue
@@ -305,22 +323,24 @@ class OasisEngine:
 
             roll = random.random()
             if roll < post_freq:
-                content = random.choice(config.hot_topics or config.seed_posts or [""])
+                content = random.choice(config.hot_topics or config.seed_posts or ["Thoughts on this topic"])
                 try:
-                    actions[agent] = oasis_module.ManualAction(
+                    actions[agent_obj] = oasis_module.ManualAction(
                         action_type=OasisActionType.CREATE_POST, action_args={"content": content},
                     )
                 except Exception:
                     pass
             elif roll < post_freq + like_freq:
                 try:
-                    actions[agent] = oasis_module.ManualAction(action_type=OasisActionType.LIKE_POST)
+                    actions[agent_obj] = oasis_module.ManualAction(
+                        action_type=OasisActionType.LIKE_POST, action_args={},
+                    )
                 except Exception:
                     pass
             else:
                 content = random.choice(config.hot_topics or ["Interesting!"])
                 try:
-                    actions[agent] = oasis_module.ManualAction(
+                    actions[agent_obj] = oasis_module.ManualAction(
                         action_type=OasisActionType.CREATE_COMMENT, action_args={"content": content},
                     )
                 except Exception:
