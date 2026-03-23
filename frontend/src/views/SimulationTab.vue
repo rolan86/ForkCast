@@ -366,7 +366,7 @@ function formatDate(d) {
     <SimulationSettings
       v-if="currentSimulation"
       :simulation="currentSimulation"
-      @updated="loadPreparedState(currentSimId)"
+      readonly
     />
 
     <div class="flex gap-3">
