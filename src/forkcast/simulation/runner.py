@@ -174,7 +174,8 @@ def run_simulation(
                 _progress(stage="running", engine="claude", total_rounds=0)
 
                 # Run once per platform
-                for platform in platforms:
+                completed_platforms: list[str] = []
+                for pi, platform in enumerate(platforms):
                     if stop_event is not None and stop_event.is_set():
                         break
 
@@ -188,15 +189,29 @@ def run_simulation(
                                 eng.stop()
                             _progress(stage="round", current=r, total=t)
 
+                    # Wire checkpoint writing into on_round_complete
+                    def round_complete_cb(r, t, eng=engine, plat=platform, pidx=pi):
+                        write_checkpoint(
+                            sim_dir=sim_dir,
+                            round_num=r,
+                            total_rounds=t,
+                            platform=plat,
+                            platform_index=pidx,
+                            completed_platforms=completed_platforms,
+                            state=eng.state,
+                        )
+
                     engine_result = engine.run(
                         profiles=profiles,
                         config=config,
                         platform=platform,
                         on_action=on_action,
                         on_round=round_cb,
+                        on_round_complete=round_complete_cb,
                     )
                     total_tokens["input"] += engine_result.get("input_tokens", 0)
                     total_tokens["output"] += engine_result.get("output_tokens", 0)
+                    completed_platforms.append(platform)
 
             elif engine_type == "oasis":
                 # Deferred import -- OASIS is an optional dependency
@@ -247,12 +262,13 @@ def run_simulation(
                     ),
                 )
 
-        # 5. Update status
+        # 5. Update status and clean up checkpoint
         with get_db(db_path) as conn:
             conn.execute(
                 "UPDATE simulations SET status = 'completed', updated_at = datetime('now') WHERE id = ?",
                 (simulation_id,),
             )
+        cleanup_checkpoint(sim_dir)
 
         # 6. Log token usage
         if engine_type == "claude" and (total_tokens["input"] > 0 or total_tokens["output"] > 0):

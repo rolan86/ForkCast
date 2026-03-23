@@ -52,6 +52,90 @@ class TestCheckpointWriteRead:
         assert not list(sim_dir.glob("sim_state_r*.json"))
 
 
+class TestCheckpointWiring:
+    """Verify that run_simulation actually calls write_checkpoint during execution."""
+
+    def test_checkpoint_written_during_run(self, tmp_path, tmp_db_path, tmp_domains_dir):
+        """run_simulation should write checkpoints via on_round_complete callback."""
+        from unittest.mock import MagicMock, patch
+        from forkcast.simulation.runner import run_simulation
+
+        db_path = tmp_db_path
+        data_dir = tmp_path / "data"
+        domains_dir = tmp_domains_dir
+
+        from forkcast.db.connection import init_db, get_db
+        init_db(db_path)
+
+        # Create project, graph, and simulation
+        with get_db(db_path) as conn:
+            conn.execute(
+                "INSERT INTO projects (id, domain, name, status, requirement, created_at) "
+                "VALUES ('p1', '_default', 'Test', 'created', 'test req', datetime('now'))"
+            )
+            conn.execute(
+                "INSERT INTO graphs (id, project_id, file_path, status, created_at) "
+                "VALUES ('g1', 'p1', '/fake/graph.json', 'completed', datetime('now'))"
+            )
+            conn.execute(
+                "INSERT INTO simulations (id, project_id, graph_id, status, engine_type, platforms, "
+                "config_json, created_at) VALUES ('sim1', 'p1', 'g1', 'prepared', 'claude', "
+                "'[\"twitter\"]', ?, datetime('now'))",
+                (json.dumps({
+                    "total_hours": 1,
+                    "minutes_per_round": 60,
+                    "peak_hours": [],
+                    "off_peak_hours": [],
+                    "peak_multiplier": 1.0,
+                    "off_peak_multiplier": 1.0,
+                    "seed_posts": [],
+                    "hot_topics": [],
+                    "narrative_direction": "",
+                    "agent_configs": [],
+                    "platform_config": {},
+                }),),
+            )
+
+        # Write profiles
+        profiles_dir = data_dir / "sim1" / "profiles"
+        profiles_dir.mkdir(parents=True)
+        (profiles_dir / "agents.json").write_text(json.dumps([{
+            "agent_id": 0, "name": "Alice", "username": "alice",
+            "bio": "Test", "persona": "Curious", "age": 30,
+            "gender": "female", "profession": "Engineer",
+            "interests": ["tech"], "entity_type": "Person", "entity_source": "Alice",
+        }]))
+
+        # Mock Claude client to return a do_nothing tool call
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.tool_calls = [{"name": "do_nothing", "input": {"reason": "test"}}]
+        mock_response.input_tokens = 10
+        mock_response.output_tokens = 5
+        mock_client.tool_use.return_value = mock_response
+        mock_client.default_model = "claude-haiku-4-5-20251001"
+
+        checkpoints_written = []
+        original_write = __import__('forkcast.simulation.runner', fromlist=['write_checkpoint']).write_checkpoint
+
+        def tracking_write(*args, **kwargs):
+            checkpoints_written.append(kwargs.get('round_num', args[1] if len(args) > 1 else None))
+            return original_write(*args, **kwargs)
+
+        with patch('forkcast.simulation.runner.write_checkpoint', side_effect=tracking_write):
+            result = run_simulation(
+                db_path=db_path,
+                data_dir=data_dir,
+                simulation_id="sim1",
+                client=mock_client,
+                domains_dir=domains_dir,
+            )
+
+        # Checkpoint should have been written at least once (1 round)
+        assert len(checkpoints_written) >= 1
+        assert result.actions_count >= 1
+
+
 from httpx import ASGITransport, AsyncClient
 from forkcast.api.app import create_app
 from forkcast.db.connection import get_db, init_db
