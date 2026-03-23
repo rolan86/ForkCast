@@ -49,7 +49,10 @@ onMounted(async () => {
   } else {
     const latest = sims[0]
     currentSimId.value = latest.id
-    if (latest.status === 'preparing') {
+    if (latest.status === 'created' || latest.status === 'failed') {
+      currentSimulation.value = latest
+      viewState.value = 'created'
+    } else if (latest.status === 'preparing') {
       viewState.value = 'preparing'
       connectPrepareSSE(latest.id)
     } else if (latest.status === 'prepared') {
@@ -77,6 +80,18 @@ async function prepareSimulation() {
     currentSimId.value = sim.id
     await simApi.prepareSim(sim.id)
     connectPrepareSSE(sim.id)
+  } catch (e) {
+    prepareError.value = e.message
+  }
+}
+
+async function prepareExisting() {
+  prepareError.value = ''
+  viewState.value = 'preparing'
+  store.resetSimPrepareProgress()
+  try {
+    await simApi.prepareSim(currentSimId.value)
+    connectPrepareSSE(currentSimId.value)
   } catch (e) {
     prepareError.value = e.message
   }
@@ -153,6 +168,23 @@ function newSimulation() {
   viewState.value = 'empty'
 }
 
+async function loadAndNavigate(sim) {
+  currentSimId.value = sim.id
+  if (sim.status === 'prepared') {
+    await loadPreparedState(sim.id)
+  } else if (sim.status === 'created' || sim.status === 'failed') {
+    currentSimulation.value = sim
+    viewState.value = 'created'
+  }
+}
+
+async function viewActions(sim) {
+  currentSimId.value = sim.id
+  currentSimulation.value = sim
+  // TODO: load and display actions for this simulation
+  viewState.value = 'completed'
+}
+
 const graphBuilt = computed(() => store.currentGraph?.status === 'complete' || store.currentGraph?.status === 'built')
 const sims = computed(() => store.projectSimulations)
 const runProgress = computed(() => store.simRunProgress)
@@ -192,6 +224,42 @@ function formatDate(d) {
     />
   </div>
 
+  <!-- Created — configure and prepare -->
+  <div v-else-if="viewState === 'created'" class="p-6 space-y-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <h3 class="text-sm font-semibold" :style="{ color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }">
+          Simulation #{{ currentSimId?.slice(-6) }}
+        </h3>
+        <p class="text-xs mt-0.5" :style="{ color: 'var(--text-secondary)' }">Configure settings, then prepare to generate agent profiles and simulation config.</p>
+      </div>
+      <span
+        class="text-xs px-2 py-0.5 rounded font-medium"
+        :style="{ backgroundColor: 'var(--surface-sunken)', color: 'var(--text-secondary)' }"
+      >{{ currentSimulation?.status }}</span>
+    </div>
+
+    <SimulationSettings
+      v-if="currentSimulation"
+      :simulation="currentSimulation"
+      @updated="async () => { currentSimulation = await simApi.getSimulation(currentSimId) }"
+    />
+
+    <div class="flex gap-3 justify-end">
+      <button
+        class="px-4 py-2 rounded-lg text-sm border"
+        :style="{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }"
+        @click="viewState = 'empty'"
+      >Back</button>
+      <button
+        class="px-5 py-2 rounded-lg text-sm font-medium text-white"
+        :style="{ backgroundColor: 'var(--accent)' }"
+        :disabled="!graphBuilt"
+        @click="prepareExisting"
+      >Prepare Simulation</button>
+    </div>
+  </div>
+
   <!-- Preparing -->
   <div v-else-if="viewState === 'preparing'" class="p-6">
     <ProgressPanel
@@ -212,6 +280,19 @@ function formatDate(d) {
 
   <!-- Prepared -->
   <div v-else-if="viewState === 'prepared'" class="p-6 space-y-6">
+    <div class="flex items-center justify-between">
+      <div>
+        <h3 class="text-sm font-semibold" :style="{ color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }">
+          Simulation #{{ currentSimId?.slice(-6) }}
+        </h3>
+        <p class="text-xs mt-0.5" :style="{ color: 'var(--text-secondary)' }">Ready to run. Review settings and agent roster below.</p>
+      </div>
+      <span
+        class="text-xs px-2 py-0.5 rounded font-medium"
+        :style="{ backgroundColor: '#dcfce7', color: '#16a34a' }"
+      >prepared</span>
+    </div>
+
     <SimulationSettings
       v-if="currentSimulation"
       :simulation="currentSimulation"
@@ -358,7 +439,7 @@ function formatDate(d) {
         >
           <div class="w-16 text-sm font-semibold" :style="{ color: 'var(--text-primary)' }">#{{ sims.length - i }}</div>
           <div class="flex-1 flex gap-1">
-            <PlatformBadge v-for="p in (JSON.parse(sim.platforms || '[]'))" :key="p" :platform="p" size="sm" />
+            <PlatformBadge v-for="p in (Array.isArray(sim.platforms) ? sim.platforms : [])" :key="p" :platform="p" size="sm" />
           </div>
           <div class="w-40 text-xs" :style="{ color: 'var(--text-secondary)' }">{{ formatDate(sim.created_at) }}</div>
           <div class="w-20 text-sm" :style="{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }">{{ sim.rounds_completed || '?' }}/{{ sim.total_rounds || '?' }}</div>
@@ -375,14 +456,32 @@ function formatDate(d) {
         </div>
         <div
           v-if="expandedRunId === sim.id"
-          class="px-8 py-3 border-t"
+          class="px-8 py-3 border-t flex gap-2"
           :style="{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-sunken)' }"
         >
+          <button
+            v-if="sim.status === 'prepared'"
+            class="px-4 py-1.5 rounded-md text-xs font-medium text-white"
+            :style="{ backgroundColor: 'var(--success)' }"
+            @click="loadAndNavigate(sim)"
+          >Run</button>
+          <button
+            v-if="sim.status === 'completed'"
+            class="px-4 py-1.5 rounded-md text-xs font-medium"
+            :style="{ backgroundColor: 'var(--accent-surface)', color: 'var(--accent)' }"
+            @click="viewActions(sim)"
+          >View Actions</button>
+          <button
+            v-if="sim.status === 'created' || sim.status === 'failed'"
+            class="px-4 py-1.5 rounded-md text-xs font-medium"
+            :style="{ backgroundColor: 'var(--accent-surface)', color: 'var(--accent)' }"
+            @click="loadAndNavigate(sim)"
+          >Configure</button>
           <button
             class="px-4 py-1.5 rounded-md text-xs font-medium text-white opacity-50 cursor-not-allowed"
             :style="{ backgroundColor: 'var(--accent)' }"
             disabled
-            title="Available in Phase 7b"
+            title="Coming soon"
           >Generate Report</button>
         </div>
       </div>

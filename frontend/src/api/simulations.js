@@ -2,11 +2,9 @@ import { apiGet, apiPost, apiPatch } from './client.js'
 import { connectSSE, SSE_STAGES } from '@/lib/sse.js'
 
 export async function createSimulation(projectId, options = {}) {
-  const body = {
-    project_id: projectId,
-    engine_type: options.engineType || 'oasis',
-    platforms: options.platforms || ['twitter', 'reddit'],
-  }
+  const body = { project_id: projectId }
+  if (options.engineType) body.engine_type = options.engineType
+  if (options.platforms) body.platforms = options.platforms
   const resp = await apiPost('/api/simulations', body)
   return resp.data
 }

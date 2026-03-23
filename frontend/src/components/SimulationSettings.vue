@@ -87,7 +87,7 @@ async function save() {
             cursor: (e === 'oasis' && oasisDisabled) || readonly ? 'not-allowed' : 'pointer',
           }"
           :disabled="(e === 'oasis' && oasisDisabled) || readonly"
-          :title="e === 'oasis' && oasisDisabled ? 'camel-oasis not installed' : ''"
+          :title="e === 'oasis' && oasisDisabled ? 'Not available — install with: uv add camel-oasis' : ''"
           @click="engine = e"
         >{{ e === 'claude' ? 'Claude API' : 'OASIS' }}</button>
       </div>

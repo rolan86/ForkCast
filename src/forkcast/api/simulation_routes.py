@@ -207,6 +207,13 @@ async def trigger_prepare(simulation_id: str, req: PrepareRequest | None = None)
 
     prep_model = sim["prep_model"] if sim["prep_model"] else None
 
+    # Persist preparing status so tab navigation can detect it
+    with get_db(settings.db_path) as conn:
+        conn.execute(
+            "UPDATE simulations SET status = 'preparing', updated_at = datetime('now') WHERE id = ?",
+            (simulation_id,),
+        )
+
     # Create a queue for this simulation's progress events
     queue: asyncio.Queue = asyncio.Queue()
     _prepare_queues[simulation_id] = queue
@@ -243,6 +250,11 @@ async def trigger_prepare(simulation_id: str, req: PrepareRequest | None = None)
             })
         except Exception as e:
             logger.exception(f"Simulation prepare failed for {simulation_id}")
+            with get_db(settings.db_path) as conn:
+                conn.execute(
+                    "UPDATE simulations SET status = 'failed', updated_at = datetime('now') WHERE id = ?",
+                    (simulation_id,),
+                )
             queue.put_nowait({"stage": "error", "message": str(e)})
         finally:
             queue.put_nowait(None)  # Sentinel to close SSE stream
