@@ -1,6 +1,6 @@
 # ForkCast — Technical Architecture
 
-**Version:** v0.6.1-phase6b | **Last updated:** 2026-03-22
+**Version:** v0.8.0-phase7b | **Last updated:** 2026-03-23
 
 ## System Overview
 
@@ -38,14 +38,16 @@ Documents + Requirement
 |-------|-----------|
 | Language | Python 3.11+ |
 | API | FastAPI + uvicorn, SSE streaming via sse-starlette |
+| Frontend | Vue 3 + Vite, Pinia, Tailwind CSS, D3.js |
 | CLI | Typer |
 | Database | SQLite (WAL mode, row_factory) |
 | LLM | Anthropic Claude API (claude-sonnet-4-6 default) |
 | Graph | NetworkX (DiGraph) |
 | Vector store | ChromaDB (sentence-transformers/all-MiniLM-L6-v2) |
+| Simulation | Claude engine (native) + OASIS engine (optional, camel-oasis in-process API) |
 | Templates | Jinja2 |
 | PDF parsing | pypdf |
-| Package manager | uv |
+| Package manager | uv (Python), npm (frontend) |
 | Testing | pytest |
 
 
@@ -56,10 +58,10 @@ src/forkcast/
 ├── config.py              # Settings singleton (env vars, paths)
 ├── db/
 │   ├── connection.py      # SQLite connection manager + schema migration
-│   ├── schema.py          # Table definitions (v1→v2), indexes, foreign keys
+│   ├── schema.py          # Table definitions (v1→v4), indexes, foreign keys
 │   └── queries.py         # Shared query helpers (get_project_domain, get_domain_for_simulation)
 ├── llm/
-│   ├── client.py          # ClaudeClient: complete, tool_use, think, stream + retry logic
+│   ├── client.py          # ClaudeClient: complete, tool_use, think, stream, smart_call + retry
 │   └── utils.py           # strip_code_fences helper
 ├── graph/
 │   ├── pipeline.py        # Graph build orchestrator
@@ -71,11 +73,12 @@ src/forkcast/
 │   └── vector_store.py    # ChromaDB indexing (chunks + entities)
 ├── simulation/
 │   ├── models.py          # AgentProfile, SimulationConfig, PrepareResult, RunResult
-│   ├── prepare.py         # Load graph → generate profiles → generate config
+│   ├── prepare.py         # Load graph → generate profiles → generate config + profile reuse
 │   ├── profile_generator.py # LLM extended-thinking persona generation
 │   ├── config_generator.py  # LLM extended-thinking simulation parameters
 │   ├── claude_engine.py   # Agent tool-use loop (7 action tools)
-│   ├── runner.py          # Engine selection, round loop, action recording
+│   ├── oasis_engine.py    # OASIS in-process API engine (camel-oasis, llm + native modes)
+│   ├── runner.py          # Engine selection, round loop, action recording, checkpoint/resume
 │   ├── action.py          # Action dataclass + ActionType enum
 │   └── state.py           # SimulationState: feed, posts, followers, mutes, visibility
 ├── report/
@@ -94,12 +97,13 @@ src/forkcast/
 │   ├── loader.py          # Domain manifest + prompt resolution with _default fallback
 │   └── scaffold.py        # Generate new domain directory structure
 ├── api/
-│   ├── app.py             # FastAPI factory with DB lifespan
+│   ├── app.py             # FastAPI factory with DB lifespan + CORS
 │   ├── project_routes.py  # /api/projects CRUD + file upload
-│   ├── graph_routes.py    # /api/projects/{id}/build-graph + SSE stream
-│   ├── simulation_routes.py # /api/simulations CRUD + prepare/start/stop + SSE
+│   ├── graph_routes.py    # /api/projects/{id}/build-graph + graph data + SSE
+│   ├── simulation_routes.py # /api/simulations CRUD + prepare/start/stop/settings + SSE
 │   ├── report_routes.py   # /api/reports generate/list/get/export + chat endpoints
 │   ├── domain_routes.py   # /api/domains list + scaffold
+│   ├── capabilities_routes.py # /api/capabilities (models, engines, agent_modes)
 │   └── responses.py       # success/error response helpers
 └── cli/
     ├── main.py            # Typer entry point, registers all subcommands
@@ -110,10 +114,45 @@ src/forkcast/
     ├── eval_cmd.py        # forkcast eval {run,compare}
     ├── domain_cmd.py      # forkcast domain {list,create,get}
     └── server_cmd.py      # forkcast server run
+
+frontend/
+├── index.html
+├── vite.config.js         # Dev proxy /api → localhost:5001
+├── src/
+│   ├── main.js            # Vue + Pinia + Router setup
+│   ├── App.vue
+│   ├── router/index.js    # Routes: / → projects, /project/:id → tabs
+│   ├── stores/
+│   │   ├── project.js     # Pinia store: projects, graphs, simulations, SSE progress
+│   │   └── capabilities.js # Models, engines, agent_modes from /api/capabilities
+│   ├── api/
+│   │   ├── client.js      # Base fetch wrapper
+│   │   ├── projects.js    # Project CRUD
+│   │   ├── graphs.js      # Graph build + data
+│   │   ├── simulations.js # Simulation lifecycle
+│   │   ├── reports.js     # Report generation + chat
+│   │   └── capabilities.js
+│   ├── views/
+│   │   ├── ProjectListView.vue   # Dashboard: project cards + create
+│   │   ├── ProjectWizard.vue     # 3-step creation wizard
+│   │   ├── ProjectLayout.vue     # Tab container: Overview, Graph, Simulation, Report
+│   │   ├── OverviewTab.vue       # Project details + files
+│   │   ├── GraphTab.vue          # D3 force-directed graph + search/filter
+│   │   ├── SimulationTab.vue     # 5-state lifecycle: empty/configuring/running/complete/viewing
+│   │   └── ReportTab.vue         # Report generation + markdown render + chat
+│   └── components/
+│       ├── AppShell.vue          # Top-level layout with sidebar rail
+│       ├── IconRail.vue          # Navigation sidebar
+│       ├── SimulationSettings.vue # Engine, platform, model, agent_mode, profile reuse
+│       ├── SimulationConfigView.vue # Read-only config display
+│       ├── LiveFeed.vue          # Real-time action stream during simulation
+│       ├── ProgressPanel.vue     # SSE progress display (graph/sim/report)
+│       ├── AgentAvatar.vue       # Deterministic color avatar from name hash
+│       └── ...                   # Toast, EmptyState, StatCard, etc.
 ```
 
 
-## Database Schema (v2)
+## Database Schema (v4)
 
 ```sql
 -- Key-value metadata (schema version tracking)
@@ -163,6 +202,7 @@ simulations (
     engine_type TEXT,        -- "claude" or "oasis"
     platforms TEXT,          -- JSON array: ["twitter", "reddit"]
     config_json TEXT,        -- serialized SimulationConfig
+    agent_mode TEXT,         -- "llm" (default) or "native" (OASIS rule-based)
     created_at TEXT,
     updated_at TEXT
 )
@@ -215,6 +255,8 @@ token_usage (
 )
 ```
 
+**Migration path:** v1→v2 (add graphs/token_usage tables), v2→v3 (add model column to simulations), v3→v4 (add agent_mode column to simulations).
+
 
 ## Domain Plugin System
 
@@ -248,7 +290,7 @@ domains/
 
 ## LLM Integration
 
-`ClaudeClient` wraps the Anthropic SDK with four calling patterns:
+`ClaudeClient` wraps the Anthropic SDK with five calling patterns:
 
 | Method | Use case | Example |
 |--------|----------|---------|
@@ -256,6 +298,7 @@ domains/
 | `tool_use()` | Structured output | Entity extraction, report generation, agent actions |
 | `think()` | Extended reasoning | Persona generation (budget=8000), config generation (budget=10000) |
 | `stream()` | Real-time output | Report generation SSE, chat responses |
+| `smart_call()` | Auto-dispatch | Selects complete/tool_use/think based on args |
 
 **Retry logic:** Exponential backoff (1s, 2s, 4s) on rate limits and 500+ errors, max 3 retries.
 
@@ -280,16 +323,27 @@ Upload files → text_extractor (PDF/MD/TXT → plain text)
 
 ```
 Load graph entities
-    → For each entity:
-        profile_generator: Claude think() with domain persona.md template
-            → AgentProfile (name, username, bio, persona, age, gender, profession, interests)
-            → Incremental save to agents.json (crash recovery)
+    → Check for reusable profiles (same project + graph + domain):
+        If found and force_regenerate=false → copy agents.json from prior simulation
+        Else → for each entity:
+            profile_generator: Claude think() with domain persona.md template
+                → AgentProfile (name, username, bio, persona, age, gender, profession, interests)
+                → Incremental save to agents.json (crash recovery)
     → config_generator: Claude think() with domain config_gen.md
         → SimulationConfig (rounds, timing, topics, platform config)
-    → runner: for each round, for each agent:
-        claude_engine: Claude tool_use() with 7 action tools
-            → Action recorded to JSONL + simulation_actions table
-            → SimulationState updated (feed, posts, followers, mutes)
+    → runner selects engine by engine_type:
+        Claude engine: for each round, for each agent:
+            Claude tool_use() with 7 action tools
+                → Action recorded to JSONL + simulation_actions table
+                → SimulationState updated (feed, posts, followers, mutes)
+        OASIS engine: for each platform:
+            Convert profiles → OASIS format (CSV for Twitter, JSON for Reddit)
+            oasis.make() → env with agent graph
+            For each round: env.step(actions)
+                → Extract new actions from OASIS SQLite trace table
+                → Map OASIS action types to ForkCast ActionType
+                → Action recorded to JSONL + simulation_actions table
+    → Checkpoint written after each completed round (resume on crash)
 ```
 
 ### 3. Report Generation
@@ -368,14 +422,16 @@ data/
 | POST | `/api/projects/{id}/build-graph` | Trigger graph building |
 | GET | `/api/projects/{id}/build-graph/stream` | SSE progress stream |
 | GET | `/api/projects/{id}/graph` | Get graph metadata |
+| GET | `/api/projects/{id}/graph/data` | Get full graph nodes + edges (for D3) |
 
 ### Simulations
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/simulations` | Create simulation |
+| POST | `/api/simulations` | Create simulation (engine_type, platforms, agent_mode) |
 | GET | `/api/simulations` | List simulations |
 | GET | `/api/simulations/{id}` | Get simulation details |
-| POST | `/api/simulations/{id}/prepare` | Generate profiles + config |
+| PATCH | `/api/simulations/{id}/settings` | Update engine, platforms, model, agent_mode |
+| POST | `/api/simulations/{id}/prepare` | Generate profiles + config (force_regenerate opt) |
 | GET | `/api/simulations/{id}/prepare/stream` | SSE prepare progress |
 | POST | `/api/simulations/{id}/start` | Start simulation |
 | GET | `/api/simulations/{id}/run/stream` | SSE run progress + actions |
@@ -402,6 +458,11 @@ data/
 |--------|------|-------------|
 | GET | `/api/domains` | List domain plugins |
 | POST | `/api/domains` | Scaffold new domain |
+
+### Capabilities
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/capabilities` | Available models, engines, agent_modes |
 
 ### Health
 | Method | Path | Description |
@@ -436,6 +497,32 @@ forkcast server run [--host HOST] [--port PORT]
 ```
 
 
+## Simulation Engines
+
+### Claude Engine (default)
+
+Each agent is an LLM tool-use call per round. The agent receives the current feed state, its persona, and 7 action tools (create_post, like_post, dislike_post, create_comment, follow_user, mute_user, do_nothing). SimulationState tracks the social graph in-memory. Actions are recorded to JSONL + SQLite.
+
+### OASIS Engine (optional)
+
+Uses camel-oasis's in-process Python API. Supports two agent modes:
+
+- **`llm`**: Each agent gets `LLMAction()` — OASIS delegates to camel-ai's LLM integration
+- **`native`**: Each agent gets `ManualAction()` — rule-based action selection using activity levels, post/like frequencies, and peak hours from SimulationConfig
+
+**Key implementation details:**
+- Profiles converted to OASIS format (CSV for Twitter, JSON for Reddit)
+- `oasis.make()` creates the environment with an agent graph
+- After each `env.step()`, new actions extracted from OASIS's internal SQLite trace table
+- OASIS action types mapped to ForkCast ActionType via `_OASIS_ACTION_MAP`
+- `OPENAI_API_KEY` must be set (even in native mode) — bridged from `LLM_API_KEY` / `ANTHROPIC_API_KEY` or a placeholder
+- Install via `scripts/install-oasis.sh` (handles camel-oasis pytest conflict via `--no-deps`)
+
+### Profile Reuse
+
+When preparing a new simulation, `find_reusable_profiles()` searches for the most recent simulation in the same project with matching `graph_id` and `domain` that has an `agents.json` file. If found and `force_regenerate=false` (the default), profiles are copied instead of regenerated via LLM. The UI exposes this as a "Regenerate profiles" checkbox in SimulationSettings.
+
+
 ## Configuration
 
 All settings via environment variables (loaded from `.env`):
@@ -454,5 +541,9 @@ All settings via environment variables (loaded from `.env`):
 ## Dependencies
 
 **Core:** fastapi, uvicorn, typer, anthropic, networkx, chromadb, sentence-transformers, jinja2, pyyaml, python-dotenv, httpx, pypdf, python-multipart, sse-starlette
+
+**Optional (OASIS):** camel-oasis, camel-ai, igraph, pandas, neo4j, cairocffi, prance, openapi-spec-validator, requests-oauthlib, slack-sdk, unstructured
+
+**Frontend:** vue 3, vite, pinia, tailwindcss, d3, vue-router, marked (markdown rendering)
 
 **Dev:** pytest, pytest-asyncio

@@ -27,6 +27,8 @@ const activeFilters = ref([])
 const svgContainer = ref(null)
 let simulation = null
 let sseConnection = null
+let _zoomBehavior = null
+let _svgSelection = null
 
 const GRAPH_BUILD_STEPS = [
   { label: 'Extract text', stageNames: ['extracting_text'] },
@@ -111,6 +113,16 @@ function confirmRebuild() {
   startBuild()
 }
 
+function zoomIn() {
+  if (_svgSelection && _zoomBehavior) _svgSelection.transition().duration(300).call(_zoomBehavior.scaleBy, 1.4)
+}
+function zoomOut() {
+  if (_svgSelection && _zoomBehavior) _svgSelection.transition().duration(300).call(_zoomBehavior.scaleBy, 0.7)
+}
+function zoomReset() {
+  if (_svgSelection && _zoomBehavior) _svgSelection.transition().duration(300).call(_zoomBehavior.transform, d3.zoomIdentity)
+}
+
 function renderGraph() {
   if (!svgContainer.value || !graphData.value) return
 
@@ -137,6 +149,8 @@ function renderGraph() {
       g.selectAll('.node-label').attr('display', currentZoomScale > 1.5 ? 'block' : 'none')
     })
   svg.call(zoom)
+  _zoomBehavior = zoom
+  _svgSelection = svg
 
   const nodes = graphData.value.nodes.map(n => ({ ...n }))
   const edges = graphData.value.edges.map(e => ({ ...e }))
@@ -368,9 +382,9 @@ watch([searchQuery, activeFilters], applySearchAndFilters, { deep: true })
       <div ref="svgContainer" class="w-full h-full min-h-[500px]" />
 
       <div class="absolute bottom-3 left-3 flex gap-1">
-        <button class="w-8 h-8 rounded-md border flex items-center justify-center" :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }"><Plus :size="14" /></button>
-        <button class="w-8 h-8 rounded-md border flex items-center justify-center" :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }"><Minus :size="14" /></button>
-        <button class="w-8 h-8 rounded-md border flex items-center justify-center" :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }"><RotateCcw :size="12" /></button>
+        <button class="w-8 h-8 rounded-md border flex items-center justify-center" :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }" @click="zoomIn"><Plus :size="14" /></button>
+        <button class="w-8 h-8 rounded-md border flex items-center justify-center" :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }" @click="zoomOut"><Minus :size="14" /></button>
+        <button class="w-8 h-8 rounded-md border flex items-center justify-center" :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }" @click="zoomReset"><RotateCcw :size="12" /></button>
       </div>
       <div class="absolute bottom-3 right-3">
         <button

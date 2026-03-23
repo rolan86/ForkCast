@@ -1,13 +1,17 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, watch, nextTick, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useProjectStore } from '@/stores/project.js'
+import { getGraphData } from '@/api/graphs.js'
 import StatCard from '@/components/StatCard.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import * as d3 from 'd3'
 
 const router = useRouter()
 const route = useRoute()
 const store = useProjectStore()
+const miniGraphContainer = ref(null)
+let miniSim = null
 
 const project = computed(() => store.currentProject)
 const graph = computed(() => store.currentGraph)
@@ -36,6 +40,60 @@ function formatRelative(dateStr) {
   if (hours < 24) return `${hours}h ago`
   return `${Math.floor(hours / 24)}d ago`
 }
+
+const NODE_COLORS = {
+  Person: '#3b82f6', Organization: '#8b5cf6', Concept: '#6366f1',
+  Topic: '#10b981', Event: '#f59e0b',
+}
+
+async function renderMiniGraph() {
+  if (!miniGraphContainer.value || !graphBuilt.value) return
+  const container = miniGraphContainer.value
+  try {
+    const data = await getGraphData(route.params.id)
+    if (!data?.nodes?.length) return
+
+    d3.select(container).selectAll('*').remove()
+    const width = container.clientWidth
+    const height = container.clientHeight || 192
+
+    const svg = d3.select(container).append('svg')
+      .attr('width', width).attr('height', height)
+    const g = svg.append('g')
+
+    const nodes = data.nodes.map(n => ({ ...n }))
+    const edges = data.edges.map(e => ({ ...e }))
+
+    miniSim = d3.forceSimulation(nodes)
+      .force('link', d3.forceLink(edges).id(d => d.id).distance(40))
+      .force('charge', d3.forceManyBody().strength(-60))
+      .force('center', d3.forceCenter(width / 2, height / 2))
+
+    g.selectAll('line').data(edges).enter().append('line')
+      .attr('stroke', 'var(--border)').attr('stroke-width', 0.5).attr('stroke-opacity', 0.5)
+
+    g.selectAll('circle').data(nodes).enter().append('circle')
+      .attr('r', 4).attr('fill', d => NODE_COLORS[d.type] || '#6366f1').attr('opacity', 0.8)
+
+    miniSim.on('tick', () => {
+      g.selectAll('line')
+        .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+        .attr('x2', d => d.target.x).attr('y2', d => d.target.y)
+      g.selectAll('circle').attr('cx', d => d.x).attr('cy', d => d.y)
+    })
+  } catch { /* graph data not ready */ }
+}
+
+watch(graphBuilt, async (val) => {
+  if (val) { await nextTick(); renderMiniGraph() }
+}, { immediate: true })
+
+// Also render once the ref is available
+watch(miniGraphContainer, async (el) => {
+  if (el && graphBuilt.value) { await nextTick(); renderMiniGraph() }
+})
+
+onUnmounted(() => { if (miniSim) miniSim.stop() })
 
 const nextAction = computed(() => {
   if (!graphBuilt.value) return { label: 'Build Graph', action: goToGraph }
@@ -83,8 +141,11 @@ const nextAction = computed(() => {
           actionLabel="Build Graph"
           @action="goToGraph"
         />
-        <div v-else class="h-48 rounded-lg flex items-center justify-center" :style="{ backgroundColor: 'var(--surface-sunken)' }">
-          <p class="text-sm" :style="{ color: 'var(--text-tertiary)' }">Graph preview — {{ entityCount }} entities, {{ edgeCount }} edges</p>
+        <div v-else class="h-48 rounded-lg overflow-hidden relative" :style="{ backgroundColor: 'var(--surface-sunken)' }">
+          <div ref="miniGraphContainer" class="w-full h-full" />
+          <div class="absolute bottom-2 left-3 text-xs px-2 py-0.5 rounded" :style="{ backgroundColor: 'var(--surface-raised)', color: 'var(--text-tertiary)', opacity: 0.9 }">
+            {{ entityCount }} entities · {{ edgeCount }} edges
+          </div>
         </div>
       </div>
 

@@ -22,6 +22,8 @@ const forceRegenerate = ref(false)
 const agentMode = ref(props.simulation.agent_mode || 'llm')
 const saving = ref(false)
 
+defineExpose({ forceRegenerate })
+
 watch(() => props.simulation, (sim) => {
   engine.value = sim.engine_type || 'claude'
   platforms.value = sim.platforms || ['twitter', 'reddit']

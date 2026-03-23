@@ -35,6 +35,8 @@ const runErrorType = ref('')
 const runResumable = ref(false)
 
 const showReprepareModal = ref(false)
+const reusableProfiles = ref(null)
+const settingsRef = ref(null)
 let sseConnection = null
 const busy = ref(false)
 
@@ -81,16 +83,14 @@ onUnmounted(() => {
 async function prepareSimulation() {
   if (busy.value) return
   busy.value = true
-  prepareError.value = ''
-  viewState.value = 'preparing'
-  store.resetSimPrepareProgress()
-  closePreviousSSE()
-
   try {
     const sim = await simApi.createSimulation(projectId.value)
     currentSimId.value = sim.id
-    await simApi.prepareSim(sim.id)
-    connectPrepareSSE(sim.id)
+    // Fetch full simulation to get reusable_profiles info
+    const fullSim = await simApi.getSimulation(sim.id)
+    currentSimulation.value = fullSim
+    reusableProfiles.value = fullSim.reusable_profiles || null
+    viewState.value = 'created'
   } catch (e) {
     prepareError.value = e.message
   } finally {
@@ -106,7 +106,8 @@ async function prepareExisting() {
   store.resetSimPrepareProgress()
   closePreviousSSE()
   try {
-    await simApi.prepareSim(currentSimId.value)
+    const forceRegen = settingsRef.value?.forceRegenerate ?? false
+    await simApi.prepareSim(currentSimId.value, { force_regenerate: forceRegen })
     connectPrepareSSE(currentSimId.value)
   } catch (e) {
     prepareError.value = e.message
@@ -216,7 +217,10 @@ async function loadAndNavigate(sim) {
   if (sim.status === 'prepared') {
     await loadPreparedState(sim.id)
   } else if (sim.status === 'created' || sim.status === 'failed') {
-    currentSimulation.value = sim
+    // Fetch full simulation to get reusable_profiles info
+    const fullSim = await simApi.getSimulation(sim.id)
+    currentSimulation.value = fullSim
+    reusableProfiles.value = fullSim.reusable_profiles || null
     viewState.value = 'created'
   }
 }
@@ -301,8 +305,10 @@ function formatDate(d) {
 
     <SimulationSettings
       v-if="currentSimulation"
+      ref="settingsRef"
       :simulation="currentSimulation"
-      @updated="async () => { currentSimulation = await simApi.getSimulation(currentSimId) }"
+      :reusableProfiles="reusableProfiles"
+      @updated="async () => { const s = await simApi.getSimulation(currentSimId); currentSimulation = s; reusableProfiles = s.reusable_profiles || null }"
     />
 
     <div class="flex gap-3 justify-end">
@@ -416,7 +422,7 @@ function formatDate(d) {
       message="This will regenerate agent profiles and simulation config. Current profiles will be replaced."
       confirmLabel="Re-prepare"
       variant="warning"
-      @confirm="showReprepareModal = false; prepareSimulation()"
+      @confirm="showReprepareModal = false; prepareExisting()"
       @cancel="showReprepareModal = false"
     />
     </template>

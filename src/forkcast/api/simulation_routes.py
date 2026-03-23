@@ -17,7 +17,7 @@ from forkcast.config import get_settings
 from forkcast.db.connection import get_db
 from forkcast.domains.loader import load_domain
 from forkcast.llm.client import ClaudeClient
-from forkcast.simulation.prepare import prepare_simulation
+from forkcast.simulation.prepare import find_reusable_profiles, prepare_simulation
 from forkcast.simulation.runner import run_simulation
 
 logger = logging.getLogger(__name__)
@@ -166,6 +166,27 @@ async def get_simulation(simulation_id: str):
     if d.get("config_json"):
         d["config"] = json.loads(d["config_json"])
     d.pop("config_json", None)
+
+    # Include reusable profile info for simulations that haven't been prepared yet
+    if d["status"] in ("created", "failed"):
+        with get_db(settings.db_path) as conn:
+            proj = conn.execute(
+                "SELECT domain FROM projects WHERE id = ?", (d["project_id"],)
+            ).fetchone()
+        if proj:
+            reusable = find_reusable_profiles(
+                db_path=settings.db_path,
+                data_dir=settings.data_dir,
+                project_id=d["project_id"],
+                graph_id=d.get("graph_id"),
+                domain=proj["domain"],
+            )
+            if reusable:
+                d["reusable_profiles"] = {
+                    "simulation_id": reusable["simulation_id"],
+                    "count": reusable["count"],
+                }
+
     return success(d)
 
 
