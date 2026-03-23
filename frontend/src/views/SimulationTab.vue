@@ -10,6 +10,8 @@ import LiveFeed from '@/components/LiveFeed.vue'
 import AgentAvatar from '@/components/AgentAvatar.vue'
 import PlatformBadge from '@/components/PlatformBadge.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import SimulationSettings from '@/components/SimulationSettings.vue'
+import SimulationConfigView from '@/components/SimulationConfigView.vue'
 
 const route = useRoute()
 const store = useProjectStore()
@@ -25,6 +27,11 @@ const agents = ref([])
 const showAllAgents = ref(false)
 const activePlatformTab = ref('twitter')
 const expandedRunId = ref(null)
+const currentSimulation = ref(null)
+const prepareErrorType = ref('')
+const prepareResumable = ref(false)
+const runErrorType = ref('')
+const runResumable = ref(false)
 
 let sseConnection = null
 
@@ -79,6 +86,10 @@ function connectPrepareSSE(simId) {
   sseConnection = simApi.streamPrepare(simId, {
     onMessage(data) {
       store.updateSimPrepareProgress(data)
+      if (data.error_type) {
+        prepareErrorType.value = data.error_type
+        prepareResumable.value = data.resumable || false
+      }
     },
     onError(message) {
       prepareError.value = message
@@ -95,7 +106,8 @@ function connectPrepareSSE(simId) {
 async function loadPreparedState(simId) {
   const sim = await simApi.getSimulation(simId)
   currentSimId.value = simId
-  simConfig.value = sim.config_json ? JSON.parse(sim.config_json) : null
+  currentSimulation.value = sim
+  simConfig.value = sim.config || null
   agents.value = simConfig.value?.profiles || []
   viewState.value = 'prepared'
 }
@@ -189,13 +201,23 @@ function formatDate(d) {
       :progress="{ current: store.simPrepareProgress?.current, total: store.simPrepareProgress?.total }"
       :logEntries="store.simPrepareProgress?.logEntries || []"
       :error="prepareError"
+      :errorType="prepareErrorType"
+      :resumable="prepareResumable"
       @cancel="viewState = 'empty'"
       @retry="prepareSimulation"
+      @resume="prepareSimulation"
+      @startOver="() => { viewState = 'empty' }"
     />
   </div>
 
   <!-- Prepared -->
   <div v-else-if="viewState === 'prepared'" class="p-6 space-y-6">
+    <SimulationSettings
+      v-if="currentSimulation"
+      :simulation="currentSimulation"
+      @updated="loadPreparedState(currentSimId)"
+    />
+
     <div class="flex gap-3">
       <div v-for="platform in (simConfig?.platforms || ['twitter'])" :key="platform">
         <PlatformBadge :platform="platform" size="md" />
@@ -227,6 +249,8 @@ function formatDate(d) {
         @click="showAllAgents = true"
       >+ {{ agents.length - 6 }} more agents</button>
     </div>
+
+    <SimulationConfigView :config="simConfig" :simulation="currentSimulation" />
 
     <div class="flex gap-3 justify-end">
       <button

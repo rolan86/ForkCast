@@ -10,8 +10,10 @@ const props = defineProps({
   logEntries: { type: Array, default: () => [] },
   error: { type: String, default: '' },
   disconnected: { type: Boolean, default: false },
+  errorType: { type: String, default: '' },
+  resumable: { type: Boolean, default: false },
 })
-const emit = defineEmits(['cancel', 'retry'])
+const emit = defineEmits(['cancel', 'retry', 'resume', 'startOver'])
 
 const logContainer = ref(null)
 
@@ -89,19 +91,36 @@ const progressPercent = computed(() => {
       <span class="text-sm" :style="{ color: 'var(--warning)' }">Connection lost<span class="animate-pulse">...</span> reconnecting</span>
     </div>
 
-    <div v-if="error" class="mt-4 p-3 rounded-lg border" :style="{ borderColor: 'var(--danger)', backgroundColor: 'rgba(239,68,68,0.1)' }">
-      <p class="text-sm" :style="{ color: 'var(--danger)' }">{{ error }}</p>
+    <div v-if="error" class="mt-4 p-3 rounded-lg border" :style="{
+      borderColor: errorType === 'rate_limited' ? 'var(--warning)' : errorType === 'credits_exhausted' ? '#f97316' : 'var(--danger)',
+      backgroundColor: errorType === 'rate_limited' ? 'rgba(245,158,11,0.1)' : errorType === 'credits_exhausted' ? 'rgba(249,115,22,0.1)' : 'rgba(239,68,68,0.1)',
+    }">
+      <p class="text-sm" :style="{
+        color: errorType === 'rate_limited' ? 'var(--warning)' : errorType === 'credits_exhausted' ? '#f97316' : 'var(--danger)',
+      }">{{ error }}</p>
     </div>
 
     <div class="mt-4 flex justify-end gap-3">
       <button
-        v-if="error"
+        v-if="error && resumable"
+        class="px-4 py-2 rounded-lg text-sm font-medium text-white"
+        :style="{ backgroundColor: 'var(--accent)' }"
+        @click="emit('resume')"
+      >Resume</button>
+      <button
+        v-if="error && resumable"
+        class="px-4 py-2 rounded-lg text-sm border"
+        :style="{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }"
+        @click="emit('startOver')"
+      >Start Over</button>
+      <button
+        v-if="error && !resumable"
         class="px-4 py-2 rounded-lg text-sm font-medium text-white"
         :style="{ backgroundColor: 'var(--accent)' }"
         @click="emit('retry')"
       >Retry</button>
       <button
-        v-else
+        v-if="!error"
         class="px-4 py-2 rounded-lg text-sm border"
         :style="{ borderColor: 'var(--data-border)', color: 'var(--data-text-muted)' }"
         @click="emit('cancel')"
