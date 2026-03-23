@@ -19,6 +19,7 @@ const platforms = ref(props.simulation.platforms || ['twitter', 'reddit'])
 const prepModel = ref(props.simulation.prep_model || 'claude-haiku-4-5')
 const runModel = ref(props.simulation.run_model || 'claude-sonnet-4-6')
 const forceRegenerate = ref(false)
+const agentMode = ref(props.simulation.agent_mode || 'llm')
 const saving = ref(false)
 
 watch(() => props.simulation, (sim) => {
@@ -26,9 +27,11 @@ watch(() => props.simulation, (sim) => {
   platforms.value = sim.platforms || ['twitter', 'reddit']
   prepModel.value = sim.prep_model || 'claude-haiku-4-5'
   runModel.value = sim.run_model || 'claude-sonnet-4-6'
+  agentMode.value = sim.agent_mode || 'llm'
 }, { deep: true })
 
 const oasisDisabled = computed(() => !caps.isOasisAvailable)
+const showAgentMode = computed(() => engine.value === 'oasis' && !oasisDisabled.value)
 
 function togglePlatform(p) {
   if (props.readonly) return
@@ -49,6 +52,7 @@ async function save() {
       platforms: platforms.value,
       prep_model: prepModel.value,
       run_model: runModel.value,
+      agent_mode: agentMode.value,
     })
     emit('updated')
   } finally {
@@ -91,6 +95,33 @@ async function save() {
           :title="e === 'oasis' && oasisDisabled ? 'Not available — install with: uv add camel-oasis' : ''"
           @click="engine = e"
         >{{ e === 'claude' ? 'Claude API' : 'OASIS' }}</button>
+      </div>
+    </div>
+
+    <!-- Agent Mode (OASIS only) -->
+    <div v-if="showAgentMode">
+      <label class="text-xs mb-1 block" :style="{ color: 'var(--text-secondary)' }">Agent Mode</label>
+      <div class="flex gap-2">
+        <button
+          v-for="mode in [
+            { value: 'llm', label: 'LLM-driven', sub: 'AI decides actions · costs tokens' },
+            { value: 'native', label: 'Rule-based', sub: 'Activity patterns · fast, free' },
+          ]"
+          :key="mode.value"
+          class="flex-1 px-3 py-2 rounded-md text-sm border transition-colors text-left"
+          :style="{
+            backgroundColor: agentMode === mode.value ? 'var(--accent-surface)' : 'transparent',
+            borderColor: agentMode === mode.value ? 'var(--accent)' : 'var(--border)',
+            color: agentMode === mode.value ? 'var(--accent)' : 'var(--text-secondary)',
+            opacity: readonly ? 0.4 : 1,
+            cursor: readonly ? 'not-allowed' : 'pointer',
+          }"
+          :disabled="readonly"
+          @click="agentMode = mode.value"
+        >
+          <span class="block font-medium">{{ mode.label }}</span>
+          <span class="block text-xs mt-0.5 opacity-70">{{ mode.sub }}</span>
+        </button>
       </div>
     </div>
 
