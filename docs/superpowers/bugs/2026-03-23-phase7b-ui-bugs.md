@@ -114,7 +114,8 @@ Discovered during manual UI testing on 2026-03-23 after Phase 7b merge.
 ## Bug 15: No loading indicator when fetching simulation details
 - **Where:** `frontend/src/views/SimulationTab.vue:139-146`
 - **Symptom:** `loadPreparedState` makes an API call but shows no loading indicator — UI appears frozen
-- **Status:** [ ] Open
+- **Fix:** Added `loading` ref, set true during API call, prepared view shows "Loading simulation..." while fetching
+- **Status:** [x] Fixed
 
 ## Bug 16: Completed view doesn't show actions_count or rounds from DB
 - **Where:** `frontend/src/views/SimulationTab.vue:468-469`
@@ -126,7 +127,8 @@ Discovered during manual UI testing on 2026-03-23 after Phase 7b merge.
 - **Where:** `frontend/src/views/SimulationTab.vue:27,337`
 - **Symptom:** If "Show all agents" was expanded for one sim, it stays expanded for the next
 - **Root cause:** `showAllAgents` ref is never reset when simulation changes
-- **Status:** [ ] Open
+- **Fix:** Reset `showAllAgents = false` in `loadPreparedState()`
+- **Status:** [x] Fixed
 
 ## Bug 18: SimulationConfigView receives null config gracefully but shows empty
 - **Where:** `frontend/src/components/SimulationConfigView.vue`
@@ -137,7 +139,8 @@ Discovered during manual UI testing on 2026-03-23 after Phase 7b merge.
 - **Where:** `frontend/src/views/SimulationTab.vue:185-188`
 - **Symptom:** If stop API fails, error is swallowed silently
 - **Root cause:** `stopSimulation()` doesn't catch errors
-- **Status:** [ ] Open
+- **Fix:** Added try-catch, displays error via `runError` ref
+- **Status:** [x] Fixed
 
 ### Low Severity
 

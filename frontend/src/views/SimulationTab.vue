@@ -139,13 +139,21 @@ function connectPrepareSSE(simId) {
   })
 }
 
+const loading = ref(false)
+
 async function loadPreparedState(simId) {
-  const sim = await simApi.getSimulation(simId)
-  currentSimId.value = simId
-  currentSimulation.value = sim
-  simConfig.value = sim.config || null
-  agents.value = simConfig.value?.profiles || []
-  viewState.value = 'prepared'
+  loading.value = true
+  try {
+    const sim = await simApi.getSimulation(simId)
+    currentSimId.value = simId
+    currentSimulation.value = sim
+    simConfig.value = sim.config || null
+    agents.value = simConfig.value?.profiles || []
+    showAllAgents.value = false
+    viewState.value = 'prepared'
+  } finally {
+    loading.value = false
+  }
 }
 
 async function startSimulation() {
@@ -190,7 +198,11 @@ function connectRunSSE(simId) {
 
 async function stopSimulation() {
   showStopModal.value = false
-  await simApi.stopSim(currentSimId.value)
+  try {
+    await simApi.stopSim(currentSimId.value)
+  } catch (e) {
+    runError.value = `Failed to stop: ${e.message}`
+  }
 }
 
 function newSimulation() {
@@ -313,6 +325,10 @@ function formatDate(d) {
 
   <!-- Prepared -->
   <div v-else-if="viewState === 'prepared'" class="p-6 space-y-6">
+    <div v-if="loading" class="flex items-center justify-center py-12">
+      <span class="text-sm" :style="{ color: 'var(--text-secondary)' }">Loading simulation...</span>
+    </div>
+    <template v-else>
     <div class="flex items-center justify-between">
       <div>
         <h3 class="text-sm font-semibold" :style="{ color: 'var(--text-primary)', fontFamily: 'var(--font-display)' }">
@@ -378,6 +394,7 @@ function formatDate(d) {
         @click="startSimulation"
       >Run Simulation</button>
     </div>
+    </template>
   </div>
 
   <!-- Running -->
