@@ -299,8 +299,8 @@ async def start_simulation(simulation_id: str):
 
     if sim is None:
         return error(f"Simulation not found: {simulation_id}", status_code=404)
-    if sim["status"] != "prepared":
-        return error(f"Simulation must be in 'prepared' status to start (current: {sim['status']})", status_code=400)
+    if sim["status"] not in ("prepared", "running"):
+        return error(f"Simulation must be in 'prepared' or 'running' status to start (current: {sim['status']})", status_code=400)
 
     queue: asyncio.Queue = asyncio.Queue()
     _run_queues[simulation_id] = queue

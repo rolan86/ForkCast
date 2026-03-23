@@ -50,3 +50,41 @@ class TestCheckpointWriteRead:
         cleanup_checkpoint(sim_dir)
         assert not (sim_dir / "checkpoint.json").exists()
         assert not list(sim_dir.glob("sim_state_r*.json"))
+
+
+from httpx import ASGITransport, AsyncClient
+from forkcast.api.app import create_app
+from forkcast.db.connection import get_db, init_db
+
+
+@pytest.fixture
+def app(tmp_data_dir, tmp_db_path, tmp_domains_dir, monkeypatch):
+    monkeypatch.setenv("FORKCAST_DATA_DIR", str(tmp_data_dir))
+    monkeypatch.setenv("FORKCAST_DOMAINS_DIR", str(tmp_domains_dir))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+    from forkcast.config import reset_settings
+    reset_settings()
+    return create_app()
+
+
+@pytest.fixture
+async def client(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        yield c
+
+
+class TestResumeRunEndpoint:
+    @pytest.mark.anyio
+    async def test_start_rejects_completed_simulation(self, client, tmp_db_path):
+        init_db(tmp_db_path)
+        with get_db(tmp_db_path) as conn:
+            conn.execute(
+                "INSERT INTO projects (id, domain, name, status, requirement, created_at) "
+                "VALUES ('p1', '_default', 'Test', 'created', 'req', datetime('now'))"
+            )
+            conn.execute(
+                "INSERT INTO simulations (id, project_id, status, engine_type, platforms, created_at) "
+                "VALUES ('sim_done', 'p1', 'completed', 'claude', '[\"twitter\"]', datetime('now'))"
+            )
+        resp = await client.post("/api/simulations/sim_done/start")
+        assert resp.status_code == 400
