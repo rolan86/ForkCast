@@ -12,7 +12,7 @@ from forkcast.simulation.action import Action, ActionType
 from forkcast.simulation.models import AgentProfile, SimulationConfig
 from forkcast.simulation.oasis_engine import (
     OasisEngine,
-    _convert_profiles_to_csv,
+    _convert_profiles_to_twitter_csv,
     _convert_profiles_to_reddit_json,
     _monitor_actions_file,
     _parse_oasis_action,
@@ -54,19 +54,38 @@ def _make_config():
     )
 
 
-class TestConvertProfilesToCSV:
-    def test_csv_has_header(self):
+class TestConvertProfilesToTwitterCSV:
+    def test_csv_header_matches_oasis_format(self):
         profiles = _make_profiles(2)
-        csv_text = _convert_profiles_to_csv(profiles)
-        lines = csv_text.strip().split("\n")
-        assert lines[0].startswith("agent_id")
+        csv_text = _convert_profiles_to_twitter_csv(profiles)
+        lines = csv_text.strip().splitlines()
+        assert lines[0].strip() == "user_id,name,username,user_char,description"
         assert len(lines) == 3  # header + 2 profiles
 
-    def test_csv_contains_profile_data(self):
+    def test_csv_maps_fields_correctly(self):
         profiles = _make_profiles(1)
-        csv_text = _convert_profiles_to_csv(profiles)
-        assert "Agent0" in csv_text
-        assert "agent0" in csv_text
+        csv_text = _convert_profiles_to_twitter_csv(profiles)
+        import csv as csv_mod
+        import io
+        reader = csv_mod.DictReader(io.StringIO(csv_text))
+        row = next(reader)
+        assert row["user_id"] == "0"  # agent_id -> user_id
+        assert row["name"] == "Agent0"
+        assert row["username"] == "agent0"
+        assert row["user_char"] == "Persona 0"  # persona -> user_char
+        assert row["description"] == "Bio 0"  # bio -> description
+
+    def test_csv_excludes_dropped_fields(self):
+        profiles = _make_profiles(1)
+        csv_text = _convert_profiles_to_twitter_csv(profiles)
+        import csv as csv_mod
+        import io
+        reader = csv_mod.DictReader(io.StringIO(csv_text))
+        row = next(reader)
+        assert "age" not in row
+        assert "gender" not in row
+        assert "profession" not in row
+        assert "interests" not in row
 
 
 class TestConvertProfilesToRedditJSON:
@@ -76,12 +95,25 @@ class TestConvertProfilesToRedditJSON:
         assert isinstance(data, list)
         assert len(data) == 2
 
-    def test_json_has_required_fields(self):
+    def test_json_has_oasis_fields(self):
         profiles = _make_profiles(1)
         data = _convert_profiles_to_reddit_json(profiles)
-        assert "agent_id" in data[0]
+        assert "user_id" in data[0]
         assert "username" in data[0]
         assert "persona" in data[0]
+        assert "karma" in data[0]
+        assert data[0]["karma"] == 0
+        assert "mbti" in data[0]
+        assert data[0]["mbti"] == ""
+        assert "country" in data[0]
+        assert data[0]["country"] == ""
+
+    def test_json_drops_old_fields(self):
+        profiles = _make_profiles(1)
+        data = _convert_profiles_to_reddit_json(profiles)
+        assert "agent_id" not in data[0]
+        assert "profession" not in data[0]
+        assert "interests" not in data[0]
 
 
 class TestParseOasisAction:

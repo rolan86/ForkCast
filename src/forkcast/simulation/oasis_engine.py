@@ -32,35 +32,33 @@ _OASIS_ACTION_MAP = {
 }
 
 
-def _convert_profiles_to_csv(profiles: list[AgentProfile]) -> str:
-    """Convert profiles to CSV format for OASIS Twitter simulation."""
+def _convert_profiles_to_twitter_csv(profiles: list[AgentProfile]) -> str:
+    """Convert profiles to OASIS Twitter CSV format.
+
+    OASIS Twitter requires exactly 5 columns: user_id, name, username, user_char, description.
+    """
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow([
-        "agent_id", "name", "username", "bio", "persona",
-        "age", "gender", "profession", "interests",
-    ])
+    writer.writerow(["user_id", "name", "username", "user_char", "description"])
     for p in profiles:
-        writer.writerow([
-            p.agent_id, p.name, p.username, p.bio, p.persona,
-            p.age, p.gender, p.profession, ";".join(p.interests),
-        ])
+        writer.writerow([p.agent_id, p.name, p.username, p.persona, p.bio])
     return output.getvalue()
 
 
 def _convert_profiles_to_reddit_json(profiles: list[AgentProfile]) -> list[dict[str, Any]]:
-    """Convert profiles to JSON format for OASIS Reddit simulation."""
+    """Convert profiles to OASIS Reddit JSON format."""
     return [
         {
-            "agent_id": p.agent_id,
+            "user_id": p.agent_id,
             "username": p.username,
             "name": p.name,
             "bio": p.bio,
             "persona": p.persona,
             "age": p.age,
             "gender": p.gender,
-            "profession": p.profession,
-            "interests": p.interests,
+            "karma": 0,
+            "mbti": "",
+            "country": "",
         }
         for p in profiles
     ]
@@ -162,7 +160,7 @@ class OasisEngine:
         if platform == "twitter":
             profiles_filename = "twitter_profiles.csv"
             (self.sim_dir / profiles_filename).write_text(
-                _convert_profiles_to_csv(profiles), encoding="utf-8",
+                _convert_profiles_to_twitter_csv(profiles), encoding="utf-8",
             )
         else:
             profiles_filename = f"{platform}_profiles.json"
