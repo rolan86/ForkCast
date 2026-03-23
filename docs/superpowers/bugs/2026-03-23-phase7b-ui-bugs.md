@@ -118,10 +118,11 @@ Discovered during manual UI testing on 2026-03-23 after Phase 7b merge.
 - **Status:** [x] Fixed
 
 ## Bug 16: Completed view doesn't show actions_count or rounds from DB
-- **Where:** `frontend/src/views/SimulationTab.vue:468-469`
+- **Where:** `frontend/src/views/SimulationTab.vue:468-469`, `src/forkcast/api/simulation_routes.py:102-118`
 - **Symptom:** Table shows `?` for rounds and `-` for actions because fields aren't populated
-- **Root cause:** Backend `list_simulations` doesn't include `rounds_completed`, `total_rounds`, or `actions_count` in the query
-- **Status:** [ ] Open
+- **Root cause:** Backend `list_simulations` didn't compute these values — no joins to `simulation_actions`
+- **Fix:** Backend `list_simulations` now uses LEFT JOIN with COUNT/MAX aggregates for `actions_count` and `rounds_completed`, plus extracts `total_rounds` from `config_json`
+- **Status:** [x] Fixed
 
 ## Bug 17: `showAllAgents` state persists across simulation switches
 - **Where:** `frontend/src/views/SimulationTab.vue:27,337`
@@ -133,7 +134,8 @@ Discovered during manual UI testing on 2026-03-23 after Phase 7b merge.
 ## Bug 18: SimulationConfigView receives null config gracefully but shows empty
 - **Where:** `frontend/src/components/SimulationConfigView.vue`
 - **Symptom:** When config is null/undefined, the component renders but shows nothing — no "not yet generated" message
-- **Status:** [ ] Open
+- **Fix:** Added fallback message: "Configuration not yet generated. Prepare the simulation to generate config."
+- **Status:** [x] Fixed
 
 ## Bug 19: Stop simulation has no error handling
 - **Where:** `frontend/src/views/SimulationTab.vue:185-188`
@@ -147,15 +149,18 @@ Discovered during manual UI testing on 2026-03-23 after Phase 7b merge.
 ## Bug 20: Expand panel in completed table lacks keyboard accessibility
 - **Where:** `frontend/src/views/SimulationTab.vue:456-461`
 - **Symptom:** Row click handler only works with mouse — no keyboard focus or Enter/Space handling
-- **Status:** [ ] Open
+- **Fix:** Added `role="button"`, `tabindex="0"`, `aria-expanded`, and `@keydown.enter.space.prevent` handler
+- **Status:** [x] Fixed
 
 ## Bug 21: No confirmation before re-prepare
 - **Where:** `frontend/src/views/SimulationTab.vue:363`
 - **Symptom:** "Re-prepare" button triggers immediately without warning that it will regenerate profiles
-- **Status:** [ ] Open
+- **Fix:** Added ConfirmModal with warning variant before re-prepare
+- **Status:** [x] Fixed
 
 ## Bug 22: `viewActions` function is incomplete
 - **Where:** `frontend/src/views/SimulationTab.vue:204-209`
 - **Symptom:** Clicking "View Actions" sets viewState to completed but doesn't load the actions
 - **Root cause:** TODO comment — function only sets state, doesn't fetch or display actions
-- **Status:** [ ] Open
+- **Fix:** Now calls `simApi.getActions()` and populates `store.liveFeedActions` before transitioning to completed view
+- **Status:** [x] Fixed

@@ -14,7 +14,10 @@ const timing = computed(() => {
 </script>
 
 <template>
-  <div v-if="config || simulation" class="space-y-3">
+  <div v-if="!config && !simulation" class="py-3">
+    <p class="text-xs italic" :style="{ color: 'var(--text-tertiary)' }">Configuration not yet generated. Prepare the simulation to generate config.</p>
+  </div>
+  <div v-else class="space-y-3">
     <h4 class="text-xs uppercase tracking-wider" :style="{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }">
       Configuration
     </h4>

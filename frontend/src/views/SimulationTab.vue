@@ -33,6 +33,7 @@ const prepareResumable = ref(false)
 const runErrorType = ref('')
 const runResumable = ref(false)
 
+const showReprepareModal = ref(false)
 let sseConnection = null
 const busy = ref(false)
 
@@ -226,7 +227,12 @@ async function viewActions(sim) {
   currentSimulation.value = sim
   store.resetSimPrepareProgress()
   store.resetSimRunProgress()
-  // TODO: load and display actions for this simulation
+  try {
+    const actions = await simApi.getActions(sim.id)
+    store.liveFeedActions.splice(0, store.liveFeedActions.length, ...actions)
+  } catch (e) {
+    console.warn('Failed to load actions:', e.message)
+  }
   viewState.value = 'completed'
 }
 
@@ -386,7 +392,7 @@ function formatDate(d) {
       <button
         class="px-4 py-2 rounded-lg text-sm border"
         :style="{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }"
-        @click="prepareSimulation"
+        @click="showReprepareModal = true"
       >Re-prepare</button>
       <button
         class="px-5 py-2 rounded-lg text-sm font-medium text-white"
@@ -394,6 +400,16 @@ function formatDate(d) {
         @click="startSimulation"
       >Run Simulation</button>
     </div>
+
+    <ConfirmModal
+      v-if="showReprepareModal"
+      title="Re-prepare Simulation?"
+      message="This will regenerate agent profiles and simulation config. Current profiles will be replaced."
+      confirmLabel="Re-prepare"
+      variant="warning"
+      @confirm="showReprepareModal = false; prepareSimulation()"
+      @cancel="showReprepareModal = false"
+    />
     </template>
   </div>
 
@@ -481,11 +497,15 @@ function formatDate(d) {
       >
         <div
           class="flex px-4 py-3 items-center cursor-pointer transition-colors"
+          role="button"
+          tabindex="0"
+          :aria-expanded="expandedRunId === sim.id"
           :style="{
             backgroundColor: i === 0 ? 'var(--accent-surface)' : 'var(--surface-raised)',
             borderLeft: i === 0 ? '3px solid var(--accent)' : 'none',
           }"
           @click="expandedRunId = expandedRunId === sim.id ? null : sim.id"
+          @keydown.enter.space.prevent="expandedRunId = expandedRunId === sim.id ? null : sim.id"
         >
           <div class="w-16 text-sm font-semibold" :style="{ color: 'var(--text-primary)' }">#{{ sims.length - i }}</div>
           <div class="flex-1 flex gap-1">

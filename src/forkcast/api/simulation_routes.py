@@ -101,18 +101,35 @@ async def create_simulation(req: CreateSimulationRequest):
 
 @router.get("")
 async def list_simulations():
-    """List all simulations."""
+    """List all simulations with computed action counts and round info."""
     settings = get_settings()
     with get_db(settings.db_path) as conn:
         rows = conn.execute(
-            "SELECT id, project_id, graph_id, status, engine_type, platforms, created_at, updated_at "
-            "FROM simulations ORDER BY created_at DESC"
+            "SELECT s.id, s.project_id, s.graph_id, s.status, s.engine_type, "
+            "s.platforms, s.config_json, s.created_at, s.updated_at, "
+            "COUNT(a.id) AS actions_count, MAX(a.round) AS rounds_completed "
+            "FROM simulations s "
+            "LEFT JOIN simulation_actions a ON a.simulation_id = s.id "
+            "GROUP BY s.id "
+            "ORDER BY s.created_at DESC"
         ).fetchall()
 
     results = []
     for row in rows:
         d = dict(row)
         d["platforms"] = json.loads(d["platforms"]) if d["platforms"] else []
+        # Extract total_rounds from config_json if available
+        total_rounds = None
+        if d.get("config_json"):
+            try:
+                config = json.loads(d["config_json"])
+                total_rounds = config.get("rounds")
+            except (json.JSONDecodeError, TypeError):
+                pass
+        d["total_rounds"] = total_rounds
+        d["actions_count"] = d["actions_count"] or 0
+        d["rounds_completed"] = d["rounds_completed"] or 0
+        d.pop("config_json", None)
         results.append(d)
 
     return success(results)
