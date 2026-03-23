@@ -20,6 +20,7 @@ const routes = [
       { path: 'overview', name: 'project-overview', component: () => import('@/views/OverviewTab.vue') },
       { path: 'graph', name: 'project-graph', component: () => import('@/views/GraphTab.vue') },
       { path: 'simulations', name: 'project-simulations', component: () => import('@/views/SimulationTab.vue') },
+      { path: 'reports', name: 'project-reports', component: () => import('@/views/ReportTab.vue') },
     ],
   },
 ]

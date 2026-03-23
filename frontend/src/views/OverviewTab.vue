@@ -40,7 +40,7 @@ function formatRelative(dateStr) {
 const nextAction = computed(() => {
   if (!graphBuilt.value) return { label: 'Build Graph', action: goToGraph }
   if (!sims.value.length) return { label: 'Prepare Simulation', action: goToSimulations }
-  return { label: 'Generate Report', action: () => {}, disabled: true }
+  return { label: 'Generate Report', action: () => router.push({ name: 'project-reports', params: { id: route.params.id } }) }
 })
 </script>
 

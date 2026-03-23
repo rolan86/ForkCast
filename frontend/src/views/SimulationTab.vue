@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore } from '@/stores/project.js'
 import * as simApi from '@/api/simulations.js'
 import EmptyState from '@/components/EmptyState.vue'
@@ -14,6 +14,7 @@ import SimulationSettings from '@/components/SimulationSettings.vue'
 import SimulationConfigView from '@/components/SimulationConfigView.vue'
 
 const route = useRoute()
+const router = useRouter()
 const store = useProjectStore()
 const projectId = computed(() => route.params.id)
 
@@ -58,18 +59,16 @@ onMounted(async () => {
   } else {
     const latest = sims[0]
     currentSimId.value = latest.id
-    if (latest.status === 'created' || latest.status === 'failed') {
-      currentSimulation.value = latest
-      viewState.value = 'created'
-    } else if (latest.status === 'preparing') {
+    // Active operations take focus immediately
+    if (latest.status === 'preparing') {
       viewState.value = 'preparing'
       connectPrepareSSE(latest.id)
-    } else if (latest.status === 'prepared') {
-      await loadPreparedState(latest.id)
     } else if (latest.status === 'running') {
       viewState.value = 'running'
       connectRunSSE(latest.id)
     } else {
+      // For all other states, show the full simulation list
+      // so users can see and access all simulations
       viewState.value = 'completed'
     }
   }
@@ -548,10 +547,10 @@ function formatDate(d) {
             @click="loadAndNavigate(sim)"
           >Configure</button>
           <button
-            class="px-4 py-1.5 rounded-md text-xs font-medium text-white opacity-50 cursor-not-allowed"
+            v-if="sim.status === 'completed'"
+            class="px-4 py-1.5 rounded-md text-xs font-medium text-white"
             :style="{ backgroundColor: 'var(--accent)' }"
-            disabled
-            title="Coming soon"
+            @click="router.push({ name: 'project-reports', params: { id: projectId } })"
           >Generate Report</button>
         </div>
       </div>

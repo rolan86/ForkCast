@@ -2,7 +2,7 @@
 import { onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useProjectStore } from '@/stores/project.js'
-import { BarChart3, GitBranch, Play } from 'lucide-vue-next'
+import { BarChart3, GitBranch, Play, FileText } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
@@ -22,6 +22,7 @@ const tabs = [
   { name: 'project-overview', label: 'Overview', icon: BarChart3 },
   { name: 'project-graph', label: 'Graph', icon: GitBranch },
   { name: 'project-simulations', label: 'Simulations', icon: Play },
+  { name: 'project-reports', label: 'Reports', icon: FileText },
 ]
 
 const graphActive = computed(() => !!store.graphBuildProgress?.stage && store.graphBuildProgress.stage !== 'complete')

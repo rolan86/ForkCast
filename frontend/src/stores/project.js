@@ -14,6 +14,7 @@ export const useProjectStore = defineStore('project', {
     simPrepareProgress: null,
     simRunProgress: null,
     liveFeedActions: [],
+    reportProgress: null,
   }),
 
   getters: {
