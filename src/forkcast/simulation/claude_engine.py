@@ -218,6 +218,7 @@ class ClaudeEngine:
         platform: str,
         on_action: Callable[[Action], None],
         on_round: Callable[[int, int], None] | None = None,
+        on_round_complete: Callable[[int, int], None] | None = None,
     ) -> dict[str, Any]:
         """Run the full simulation. Returns token usage stats."""
         feed_weights = config.platform_config.get(
@@ -297,6 +298,8 @@ class ClaudeEngine:
 
             if not self._stopped:
                 completed_rounds = round_num
+                if on_round_complete:
+                    on_round_complete(round_num, total_rounds)
 
         return {
             "total_rounds": completed_rounds,

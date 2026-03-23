@@ -22,6 +22,57 @@ ProgressCallback = Callable[..., None] | None
 AGENT_SYSTEM_PROMPT_KEY = "agent_system"
 
 
+def write_checkpoint(
+    sim_dir: Path,
+    round_num: int,
+    total_rounds: int,
+    platform: str,
+    platform_index: int,
+    completed_platforms: list[str],
+    state: "SimulationState",
+) -> None:
+    """Write checkpoint after a fully completed round."""
+    checkpoint = {
+        "last_completed_round": round_num,
+        "total_rounds": total_rounds,
+        "platform": platform,
+        "platform_index": platform_index,
+        "completed_platforms": completed_platforms,
+    }
+    cp_path = sim_dir / "checkpoint.json"
+    tmp_path = sim_dir / "checkpoint.json.tmp"
+    tmp_path.write_text(json.dumps(checkpoint), encoding="utf-8")
+    tmp_path.rename(cp_path)
+
+    state_path = sim_dir / f"sim_state_r{round_num}.json"
+    state_tmp = sim_dir / f"sim_state_r{round_num}.json.tmp"
+    state_tmp.write_text(json.dumps(state.to_dict()), encoding="utf-8")
+    state_tmp.rename(state_path)
+
+    # Clean up older state snapshots (keep only latest)
+    for old in sim_dir.glob("sim_state_r*.json"):
+        if old != state_path:
+            old.unlink(missing_ok=True)
+
+
+def read_checkpoint(sim_dir: Path) -> dict | None:
+    """Read checkpoint.json if it exists."""
+    cp_path = sim_dir / "checkpoint.json"
+    if not cp_path.exists():
+        return None
+    try:
+        return json.loads(cp_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def cleanup_checkpoint(sim_dir: Path) -> None:
+    """Remove checkpoint files after successful completion."""
+    (sim_dir / "checkpoint.json").unlink(missing_ok=True)
+    for f in sim_dir.glob("sim_state_r*.json"):
+        f.unlink(missing_ok=True)
+
+
 def run_simulation(
     db_path: Path,
     data_dir: Path,
