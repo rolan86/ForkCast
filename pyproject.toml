@@ -21,6 +21,12 @@ dependencies = [
     "sse-starlette>=3.3.3",
 ]
 
+[project.optional-dependencies]
+oasis = [
+    "camel-oasis>=0.2.5",
+    "camel-ai>=0.2.78",
+]
+
 [project.scripts]
 forkcast = "forkcast.cli.main:app"
 
@@ -34,6 +40,14 @@ packages = ["src/forkcast"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "oasis" },
+        { group = "dev" },
+    ],
+]
 
 [dependency-groups]
 dev = [
