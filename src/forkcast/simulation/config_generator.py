@@ -40,6 +40,7 @@ def generate_config(
     profiles: list[AgentProfile],
     requirement: str,
     config_template: str,
+    model: str | None = None,
 ) -> tuple[SimulationConfig, dict[str, int]]:
     """Generate simulation config using extended thinking.
 
@@ -58,7 +59,8 @@ def generate_config(
         "No markdown formatting. No code fences."
     )
 
-    response = client.think(
+    response = client.smart_call(
+        model=model or client.default_model,
         messages=[{"role": "user", "content": prompt}],
         system=system,
         thinking_budget=10000,

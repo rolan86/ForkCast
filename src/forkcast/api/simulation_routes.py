@@ -180,22 +180,32 @@ async def update_settings(simulation_id: str, req: UpdateSettingsRequest):
     return success({"updated": True, "simulation_id": simulation_id})
 
 
+class PrepareRequest(BaseModel):
+    force_regenerate: bool = False
+
+
 @router.post("/{simulation_id}/prepare")
-async def trigger_prepare(simulation_id: str):
+async def trigger_prepare(simulation_id: str, req: PrepareRequest | None = None):
     """Trigger simulation preparation as a background task.
 
     Returns immediately with status 'preparing'. Monitor progress via
     GET /api/simulations/{id}/prepare/stream (SSE).
+
+    Accepts optional JSON body with force_regenerate to skip profile reuse.
+    Also allows resuming a simulation in 'preparing' status.
     """
     settings = get_settings()
+    force_regen = req.force_regenerate if req else False
 
     with get_db(settings.db_path) as conn:
         sim = conn.execute(
-            "SELECT id, status FROM simulations WHERE id = ?", (simulation_id,)
+            "SELECT id, status, prep_model FROM simulations WHERE id = ?", (simulation_id,)
         ).fetchone()
 
     if sim is None:
         return error(f"Simulation not found: {simulation_id}", status_code=404)
+
+    prep_model = sim["prep_model"] if sim["prep_model"] else None
 
     # Create a queue for this simulation's progress events
     queue: asyncio.Queue = asyncio.Queue()
@@ -217,6 +227,8 @@ async def trigger_prepare(simulation_id: str):
             client=client,
             domains_dir=settings.domains_dir,
             on_progress=on_progress,
+            force_regenerate=force_regen,
+            prep_model=prep_model,
         )
 
     async def _background_prepare():

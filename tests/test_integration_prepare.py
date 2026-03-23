@@ -73,7 +73,7 @@ class TestFullPrepareFlow:
 
         mock_client = MagicMock()
         mock_client.default_model = "claude-sonnet-4-6"
-        mock_client.think.side_effect = [
+        mock_client.smart_call.side_effect = [
             LLMResponse(text=_mock_profile(), input_tokens=200, output_tokens=100),
             LLMResponse(text=_mock_profile(), input_tokens=200, output_tokens=100),
             LLMResponse(text=_mock_config(), input_tokens=400, output_tokens=200),

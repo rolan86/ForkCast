@@ -81,7 +81,7 @@ class TestPreparePipeline:
         client = MagicMock()
         client.default_model = "claude-sonnet-4-6"
         # Profile generation calls (think) — one per entity
-        client.think.side_effect = [
+        client.smart_call.side_effect = [
             LLMResponse(text=_mock_profile_json(), input_tokens=500, output_tokens=300),
             LLMResponse(text=_mock_profile_json(), input_tokens=500, output_tokens=300),
             LLMResponse(text=_mock_profile_json(), input_tokens=500, output_tokens=300),
@@ -133,7 +133,7 @@ class TestPreparePipeline:
 
         client = MagicMock()
         client.default_model = "claude-sonnet-4-6"
-        client.think.side_effect = [
+        client.smart_call.side_effect = [
             LLMResponse(text=_mock_profile_json(), input_tokens=100, output_tokens=50),
             LLMResponse(text=_mock_profile_json(), input_tokens=100, output_tokens=50),
             LLMResponse(text=_mock_profile_json(), input_tokens=100, output_tokens=50),
@@ -163,7 +163,7 @@ class TestPreparePipeline:
 
         client = MagicMock()
         client.default_model = "claude-sonnet-4-6"
-        client.think.side_effect = [
+        client.smart_call.side_effect = [
             LLMResponse(text=_mock_profile_json(), input_tokens=100, output_tokens=50),
             LLMResponse(text=_mock_profile_json(), input_tokens=100, output_tokens=50),
             LLMResponse(text=_mock_profile_json(), input_tokens=100, output_tokens=50),

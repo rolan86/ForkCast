@@ -31,7 +31,7 @@ def _mock_client_for_profile():
         "username": "dr_ethics",
         "name": "Dr. Sarah Chen",
     })
-    client.think.return_value = LLMResponse(
+    client.smart_call.return_value = LLMResponse(
         text=profile_json,
         input_tokens=500,
         output_tokens=300,
@@ -101,7 +101,7 @@ class TestGenerateProfile:
         assert profile.entity_source == "Dr. Sarah Chen"
         assert tokens["input"] == 500
         assert tokens["output"] == 300
-        client.think.assert_called_once()
+        client.smart_call.assert_called_once()
 
 
 class TestGenerateProfiles:
@@ -170,7 +170,7 @@ class TestGenerateProfiles:
         )
 
         # Should only generate 1 new profile (Entity B), not 2
-        assert client.think.call_count == 1
+        assert client.smart_call.call_count == 1
         assert len(profiles) == 2  # total includes existing + new
         assert total_tokens["input"] == 500  # only 1 API call
 

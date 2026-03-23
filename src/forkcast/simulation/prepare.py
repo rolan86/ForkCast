@@ -2,6 +2,7 @@
 
 import json
 import logging
+import shutil
 from pathlib import Path
 from typing import Any, Callable
 
@@ -9,7 +10,7 @@ from forkcast.db.connection import get_db
 from forkcast.domains.loader import load_domain, read_prompt
 from forkcast.llm.client import ClaudeClient
 from forkcast.simulation.config_generator import generate_config
-from forkcast.simulation.models import PrepareResult
+from forkcast.simulation.models import AgentProfile, PrepareResult
 from forkcast.simulation.profile_generator import generate_profiles
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,8 @@ def prepare_simulation(
     client: ClaudeClient,
     domains_dir: Path,
     on_progress: ProgressCallback = None,
+    force_regenerate: bool = False,
+    prep_model: str | None = None,
 ) -> PrepareResult:
     """Run the full prepare pipeline: load graph -> generate profiles -> generate config."""
 
@@ -82,6 +85,10 @@ def prepare_simulation(
 
     project_id = sim["project_id"]
     graph_id = sim["graph_id"]
+
+    # Use prep_model from DB if not passed explicitly
+    if prep_model is None:
+        prep_model = sim["prep_model"] if sim["prep_model"] else None
 
     with get_db(db_path) as conn:
         project = conn.execute(
@@ -118,21 +125,44 @@ def prepare_simulation(
     persona_template = read_prompt(domain, "persona")
     config_template = read_prompt(domain, "config_generation")
 
-    # 4. Generate profiles (with incremental saving for recovery)
+    # 4. Generate profiles (with reuse and incremental saving for recovery)
     sim_dir = data_dir / simulation_id
     profiles_dir = sim_dir / "profiles"
-    _progress("generating_profiles", total=len(entities))
-    profiles, profile_tokens = generate_profiles(
-        client=client,
-        entities=entities,
-        graph_data=graph_data,
-        requirement=project["requirement"],
-        persona_template=persona_template,
-        profiles_dir=profiles_dir,
-        on_progress=lambda current, total: _progress(
-            "generating_profiles", current=current, total=total
-        ),
-    )
+
+    # Check for reusable profiles (unless force_regenerate)
+    reuse_info = None
+    if not force_regenerate:
+        reuse_info = find_reusable_profiles(
+            db_path=db_path,
+            data_dir=data_dir,
+            project_id=project_id,
+            graph_id=graph_id,
+            domain=project["domain"],
+        )
+
+    if reuse_info is not None and reuse_info["simulation_id"] != simulation_id:
+        # Copy profiles from previous simulation
+        profiles_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(reuse_info["path"], profiles_dir / "agents.json")
+        _progress("generating_profiles", current=reuse_info["count"], total=reuse_info["count"], reused=True)
+        # Load reused profiles as AgentProfile objects
+        reused_data = json.loads((profiles_dir / "agents.json").read_text(encoding="utf-8"))
+        profiles = [AgentProfile(**p) for p in reused_data]
+        profile_tokens = {"input": 0, "output": 0}
+    else:
+        _progress("generating_profiles", total=len(entities))
+        profiles, profile_tokens = generate_profiles(
+            client=client,
+            entities=entities,
+            graph_data=graph_data,
+            requirement=project["requirement"],
+            persona_template=persona_template,
+            profiles_dir=profiles_dir,
+            on_progress=lambda current, total: _progress(
+                "generating_profiles", current=current, total=total
+            ),
+            model=prep_model,
+        )
     profiles_path = profiles_dir / "agents.json"
 
     # 5. Generate config
@@ -142,6 +172,7 @@ def prepare_simulation(
         profiles=profiles,
         requirement=project["requirement"],
         config_template=config_template,
+        model=prep_model,
     )
 
     # 6. Persist config and update simulation status

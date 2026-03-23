@@ -61,6 +61,7 @@ def generate_profile(
     related_entities: list[str],
     requirement: str,
     persona_template: str,
+    model: str | None = None,
 ) -> tuple[AgentProfile, dict[str, int]]:
     """Generate a single agent profile using extended thinking.
 
@@ -81,7 +82,8 @@ def generate_profile(
         "No markdown formatting. No code fences."
     )
 
-    response = client.think(
+    response = client.smart_call(
+        model=model or client.default_model,
         messages=[{"role": "user", "content": prompt}],
         system=system,
         thinking_budget=8000,
@@ -115,6 +117,7 @@ def generate_profiles(
     persona_template: str,
     profiles_dir: Path,
     on_progress: Callable[[int, int], None] | None = None,
+    model: str | None = None,
 ) -> tuple[list[AgentProfile], dict[str, int]]:
     """Generate profiles for all entities with incremental saving.
 
@@ -153,6 +156,7 @@ def generate_profiles(
             related_entities=related,
             requirement=requirement,
             persona_template=persona_template,
+            model=model,
         )
         profiles.append(profile)
         total_input += tokens["input"]

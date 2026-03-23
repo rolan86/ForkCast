@@ -60,7 +60,7 @@ class TestBuildConfigPrompt:
 class TestGenerateConfig:
     def test_generate_config(self):
         client = MagicMock()
-        client.think.return_value = _mock_config_response()
+        client.smart_call.return_value = _mock_config_response()
         profiles = _make_profiles(2)
 
         config, tokens = generate_config(
@@ -77,7 +77,7 @@ class TestGenerateConfig:
         assert len(config.agent_configs) == 2
         assert tokens["input"] == 800
         assert tokens["output"] == 600
-        client.think.assert_called_once()
+        client.smart_call.assert_called_once()
 
     def test_config_strips_code_fences(self):
         client = MagicMock()
@@ -89,7 +89,7 @@ class TestGenerateConfig:
             "narrative_direction": "dir",
             "agent_configs": [], "platform_config": {},
         })
-        client.think.return_value = LLMResponse(
+        client.smart_call.return_value = LLMResponse(
             text=f"```json\n{config_json}\n```",
             input_tokens=100, output_tokens=50,
         )
@@ -113,7 +113,7 @@ class TestGenerateConfig:
             "narrative_direction": "dir",
             "agent_configs": [], "platform_config": {},
         })
-        client.think.return_value = LLMResponse(
+        client.smart_call.return_value = LLMResponse(
             text=config_json, input_tokens=100, output_tokens=50,
         )
 
