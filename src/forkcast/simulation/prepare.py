@@ -17,6 +17,46 @@ logger = logging.getLogger(__name__)
 ProgressCallback = Callable[..., None] | None
 
 
+def find_reusable_profiles(
+    db_path: Path,
+    data_dir: Path,
+    project_id: str,
+    graph_id: str | None,
+    domain: str,
+) -> dict | None:
+    """Find the most recent simulation with reusable profiles.
+
+    Returns {"simulation_id": str, "count": int, "path": Path} or None.
+    """
+    if graph_id is None:
+        return None
+
+    with get_db(db_path) as conn:
+        rows = conn.execute(
+            """SELECT s.id FROM simulations s
+               JOIN projects p ON s.project_id = p.id
+               WHERE s.project_id = ? AND s.graph_id IS NOT NULL AND s.graph_id = ?
+               AND p.domain = ?
+               ORDER BY s.created_at DESC LIMIT 10""",
+            (project_id, graph_id, domain),
+        ).fetchall()
+
+    for r in rows:
+        profiles_path = data_dir / r["id"] / "profiles" / "agents.json"
+        if profiles_path.exists():
+            try:
+                data = json.loads(profiles_path.read_text(encoding="utf-8"))
+                if data:
+                    return {
+                        "simulation_id": r["id"],
+                        "count": len(data),
+                        "path": profiles_path,
+                    }
+            except (json.JSONDecodeError, KeyError):
+                continue
+    return None
+
+
 def prepare_simulation(
     db_path: Path,
     data_dir: Path,
