@@ -1,10 +1,13 @@
 """Tests for simulation timing controls — schema, API, and config generator."""
 
+import json
 import sqlite3
 from pathlib import Path
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 
+from forkcast.api.app import create_app
 from forkcast.db.connection import get_db, init_db
 from forkcast.db.schema import SCHEMA_VERSION
 
@@ -109,3 +112,119 @@ class TestSchemaV5:
             assert row["status"] == "completed"
             assert row["engine_type"] == "claude"
             assert row["agent_mode"] == "llm"
+
+
+@pytest.fixture
+def app(tmp_data_dir, tmp_db_path, tmp_domains_dir, monkeypatch):
+    monkeypatch.setenv("FORKCAST_DATA_DIR", str(tmp_data_dir))
+    monkeypatch.setenv("FORKCAST_DOMAINS_DIR", str(tmp_domains_dir))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
+    from forkcast.config import reset_settings
+    reset_settings()
+    return create_app()
+
+
+@pytest.fixture
+async def client(app):
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        yield c
+
+
+def _create_project(db_path):
+    with get_db(db_path) as conn:
+        conn.execute(
+            "INSERT INTO projects (id, domain, name, status, requirement, created_at) "
+            "VALUES ('p1', '_default', 'Test', 'created', 'req', datetime('now'))"
+        )
+
+
+class TestTimingAPI:
+    @pytest.mark.anyio
+    async def test_patch_sets_timing(self, client, tmp_db_path):
+        _create_project(tmp_db_path)
+        resp = await client.post("/api/simulations", json={"project_id": "p1"})
+        sim_id = resp.json()["data"]["id"]
+
+        resp = await client.patch(f"/api/simulations/{sim_id}/settings", json={
+            "total_hours": 48, "minutes_per_round": 30
+        })
+        assert resp.status_code == 200
+
+        resp = await client.get(f"/api/simulations/{sim_id}")
+        data = resp.json()["data"]
+        assert data["total_hours"] == 48
+        assert data["minutes_per_round"] == 30
+
+    @pytest.mark.anyio
+    async def test_fresh_simulation_has_null_timing(self, client, tmp_db_path):
+        _create_project(tmp_db_path)
+        resp = await client.post("/api/simulations", json={"project_id": "p1"})
+        sim_id = resp.json()["data"]["id"]
+
+        resp = await client.get(f"/api/simulations/{sim_id}")
+        data = resp.json()["data"]
+        assert data["total_hours"] is None
+        assert data["minutes_per_round"] is None
+
+    @pytest.mark.anyio
+    async def test_patch_accepts_boundary_values(self, client, tmp_db_path):
+        _create_project(tmp_db_path)
+        resp = await client.post("/api/simulations", json={"project_id": "p1"})
+        sim_id = resp.json()["data"]["id"]
+
+        resp = await client.patch(f"/api/simulations/{sim_id}/settings", json={
+            "total_hours": 1, "minutes_per_round": 10
+        })
+        assert resp.status_code == 200
+
+        resp = await client.patch(f"/api/simulations/{sim_id}/settings", json={
+            "total_hours": 168, "minutes_per_round": 60
+        })
+        assert resp.status_code == 200
+
+    @pytest.mark.anyio
+    async def test_patch_rejects_out_of_range_hours(self, client, tmp_db_path):
+        _create_project(tmp_db_path)
+        resp = await client.post("/api/simulations", json={"project_id": "p1"})
+        sim_id = resp.json()["data"]["id"]
+
+        resp = await client.patch(f"/api/simulations/{sim_id}/settings", json={
+            "total_hours": 0
+        })
+        assert resp.status_code == 422
+
+        resp = await client.patch(f"/api/simulations/{sim_id}/settings", json={
+            "total_hours": 200
+        })
+        assert resp.status_code == 422
+
+    @pytest.mark.anyio
+    async def test_patch_rejects_out_of_range_interval(self, client, tmp_db_path):
+        _create_project(tmp_db_path)
+        resp = await client.post("/api/simulations", json={"project_id": "p1"})
+        sim_id = resp.json()["data"]["id"]
+
+        resp = await client.patch(f"/api/simulations/{sim_id}/settings", json={
+            "minutes_per_round": 5
+        })
+        assert resp.status_code == 422
+
+        resp = await client.patch(f"/api/simulations/{sim_id}/settings", json={
+            "minutes_per_round": 90
+        })
+        assert resp.status_code == 422
+
+    @pytest.mark.anyio
+    async def test_list_includes_timing(self, client, tmp_db_path):
+        _create_project(tmp_db_path)
+        resp = await client.post("/api/simulations", json={"project_id": "p1"})
+        sim_id = resp.json()["data"]["id"]
+        await client.patch(f"/api/simulations/{sim_id}/settings", json={
+            "total_hours": 6, "minutes_per_round": 30
+        })
+
+        resp = await client.get("/api/simulations")
+        sims = resp.json()["data"]
+        sim = next(s for s in sims if s["id"] == sim_id)
+        assert sim["total_hours"] == 6
+        assert sim["minutes_per_round"] == 30

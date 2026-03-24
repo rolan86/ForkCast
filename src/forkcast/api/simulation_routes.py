@@ -43,6 +43,8 @@ class UpdateSettingsRequest(BaseModel):
     prep_model: str | None = None
     run_model: str | None = None
     agent_mode: str | None = None  # "llm" or "native"
+    total_hours: float | None = None
+    minutes_per_round: int | None = None
 
 
 @router.post("")
@@ -116,7 +118,8 @@ async def list_simulations():
     with get_db(settings.db_path) as conn:
         rows = conn.execute(
             "SELECT s.id, s.project_id, s.graph_id, s.status, s.engine_type, "
-            "s.platforms, s.agent_mode, s.config_json, s.created_at, s.updated_at, "
+            "s.platforms, s.agent_mode, s.config_json, s.total_hours, s.minutes_per_round, "
+            "s.created_at, s.updated_at, "
             "COUNT(a.id) AS actions_count, MAX(a.round) AS rounds_completed "
             "FROM simulations s "
             "LEFT JOIN simulation_actions a ON a.simulation_id = s.id "
@@ -224,6 +227,16 @@ async def update_settings(simulation_id: str, req: UpdateSettingsRequest):
             return error(f"Invalid agent_mode: {req.agent_mode}. Must be one of: {_VALID_AGENT_MODES}", status_code=400)
         updates.append("agent_mode = ?")
         params.append(req.agent_mode)
+    if req.total_hours is not None:
+        if req.total_hours < 1 or req.total_hours > 168:
+            return error("total_hours must be between 1 and 168", status_code=422)
+        updates.append("total_hours = ?")
+        params.append(req.total_hours)
+    if req.minutes_per_round is not None:
+        if req.minutes_per_round < 10 or req.minutes_per_round > 60:
+            return error("minutes_per_round must be between 10 and 60", status_code=422)
+        updates.append("minutes_per_round = ?")
+        params.append(req.minutes_per_round)
 
     if not updates:
         return success({"updated": False})
