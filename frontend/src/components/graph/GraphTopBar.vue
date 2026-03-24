@@ -21,6 +21,7 @@ const props = defineProps({
   entityTypes: {
     type: Array,
     default: () => [],
+    validator: (value) => value.every(item => typeof item === 'string'),
   },
   activeFilters: {
     type: Array,
@@ -37,6 +38,18 @@ const emit = defineEmits([
   'toggle-filter',
   'toggle-settings',
 ])
+
+function handleSearchInput(event) {
+  emit('update:searchQuery', event.target.value)
+}
+
+function handleFilterToggle(type) {
+  emit('toggle-filter', type)
+}
+
+function handleSettingsToggle() {
+  emit('toggle-settings')
+}
 </script>
 
 <template>
@@ -44,9 +57,11 @@ const emit = defineEmits([
     <div class="search-section">
       <Search :size="14" />
       <input
+        id="entity-search"
         :value="searchQuery"
-        @input="$emit('update:searchQuery', $event.target.value)"
+        @input="handleSearchInput"
         placeholder="Search entities..."
+        aria-label="Search entities"
       />
     </div>
     <div v-if="entityTypes.length > 0" class="filter-section">
@@ -54,8 +69,9 @@ const emit = defineEmits([
         v-for="(type, index) in entityTypes"
         :key="type"
         :class="{ active: activeFilters.includes(type) }"
-        :style="{ animationDelay: `${index * 25}ms` }"
-        @click="$emit('toggle-filter', type)"
+        :style="{ animationDelay: `${index * var(--filter-stagger-delay, 25)}ms` }"
+        :aria-pressed="activeFilters.includes(type)"
+        @click="handleFilterToggle(type)"
       >
         {{ type }}
       </button>
@@ -63,7 +79,9 @@ const emit = defineEmits([
     <button
       class="settings-toggle"
       :class="{ active: settingsPanelOpen }"
-      @click="$emit('toggle-settings')"
+      :aria-pressed="settingsPanelOpen"
+      aria-label="Toggle settings panel"
+      @click="handleSettingsToggle"
     >
       <Settings :size="16" />
     </button>
@@ -72,6 +90,9 @@ const emit = defineEmits([
 
 <style scoped>
 .graph-top-bar {
+  --filter-stagger-delay: 25ms;
+  --filter-animation-duration: 300ms;
+
   position: relative;
   display: flex;
   align-items: center;
@@ -138,7 +159,7 @@ const emit = defineEmits([
   white-space: nowrap;
   transition: all 150ms cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
-  animation: filter-enter 300ms ease-out forwards;
+  animation: filter-enter var(--filter-animation-duration, 300ms) ease-out forwards;
   opacity: 0;
 }
 
@@ -198,6 +219,13 @@ const emit = defineEmits([
 @keyframes pulse-glow {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.8; }
+}
+
+/* Keyboard focus indicators */
+.filter-section button:focus-visible,
+.settings-toggle:focus-visible {
+  outline: 2px solid var(--color-primary, #00d4ff);
+  outline-offset: 2px;
 }
 
 /* Responsive */
