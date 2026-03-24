@@ -69,7 +69,7 @@ function handleSettingsToggle() {
         v-for="(type, index) in entityTypes"
         :key="type"
         :class="{ active: activeFilters.includes(type) }"
-        :style="{ animationDelay: `${index * var(--filter-stagger-delay, 25)}ms` }"
+        :style="{ animationDelay: `${index * 25}ms` }"
         :aria-pressed="activeFilters.includes(type)"
         @click="handleFilterToggle(type)"
       >
