@@ -18,7 +18,7 @@ Contains layout selection, visual options, and advanced settings.
 <script setup>
 import { ref, computed } from 'vue'
 import { X, ChevronRight } from 'lucide-vue-next'
-import { LAYOUT_TYPES, RENDER_MODES, INTERACTION_MODES } from '@/constants/graph.js'
+import { LAYOUT_TYPES, RENDER_MODES, INTERACTION_MODES, VISUAL_MODES } from '@/constants/graph.js'
 
 const props = defineProps({
   isOpen: {
@@ -28,10 +28,11 @@ const props = defineProps({
   currentLayout: {
     type: String,
     default: LAYOUT_TYPES.FORCE,
+    validator: (value) => Object.values(LAYOUT_TYPES).includes(value),
   },
   visualMode: {
     type: String,
-    default: '2.5d',
+    default: VISUAL_MODES.TWO_POINT_FIVE_D,
   },
   performanceMode: {
     type: Boolean,
@@ -40,10 +41,12 @@ const props = defineProps({
   renderMode: {
     type: String,
     default: RENDER_MODES.HYBRID,
+    validator: (value) => Object.values(RENDER_MODES).includes(value),
   },
   interactionMode: {
     type: String,
     default: INTERACTION_MODES.SELECT,
+    validator: (value) => Object.values(INTERACTION_MODES).includes(value),
   },
   showStats: {
     type: Boolean,
@@ -110,7 +113,7 @@ const interactionModeOptions = computed(() => [
   <Transition name="slide-in-right">
     <div v-if="isOpen" class="settings-panel">
       <!-- Close button -->
-      <button class="settings-close" @click="$emit('close')">
+      <button class="settings-close" aria-label="Close settings" @click="$emit('close')">
         <X :size="16" />
       </button>
 
@@ -149,8 +152,8 @@ const interactionModeOptions = computed(() => [
         <label class="option-checkbox">
           <input
             type="checkbox"
-            :checked="visualMode === '2.5d'"
-            @change="$emit('toggle-visual-mode')"
+            :checked="visualMode === VISUAL_MODES.TWO_POINT_FIVE_D"
+            @change="$emit('toggle-visual-mode', $event.target.checked)"
           />
           <span>2.5D holographic effect</span>
         </label>
@@ -159,7 +162,7 @@ const interactionModeOptions = computed(() => [
           <input
             type="checkbox"
             :checked="performanceMode"
-            @change="$emit('toggle-performance-mode')"
+            @change="$emit('toggle-performance-mode', $event.target.checked)"
           />
           <span>Performance mode (no animations)</span>
         </label>
@@ -167,7 +170,12 @@ const interactionModeOptions = computed(() => [
 
       <!-- Advanced Section -->
       <div class="settings-section">
-        <button class="accordion-trigger" @click="toggleAdvanced">
+        <button
+          class="accordion-trigger"
+          aria-label="Toggle advanced settings"
+          :aria-expanded="advancedExpanded"
+          @click="toggleAdvanced"
+        >
           <span class="settings-header">Advanced</span>
           <ChevronRight
             :size="14"
@@ -235,7 +243,7 @@ const interactionModeOptions = computed(() => [
               <input
                 type="checkbox"
                 :checked="clusteringEnabled"
-                @change="$emit('toggle-clustering')"
+                @change="$emit('toggle-clustering', $event.target.checked)"
               />
               <span>Auto-clustering</span>
             </label>
@@ -248,9 +256,11 @@ const interactionModeOptions = computed(() => [
 
 <style scoped>
 .settings-panel {
+  --top-bar-height: 53px;
+
   position: fixed;
   right: 0;
-  top: 53px;
+  top: var(--top-bar-height);
   bottom: 0;
   width: 300px;
   background: var(--surface-raised);
@@ -480,6 +490,16 @@ const interactionModeOptions = computed(() => [
   color: var(--text-primary);
   font-size: 13px;
   cursor: pointer;
+}
+
+/* Keyboard focus indicators */
+.settings-close:focus-visible,
+.accordion-trigger:focus-visible,
+.layout-radio:focus-visible,
+.option-checkbox:focus-visible,
+.select-input:focus-visible {
+  outline: 2px solid var(--color-primary, #00d4ff);
+  outline-offset: 2px;
 }
 
 /* Slide animation */
