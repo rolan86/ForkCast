@@ -1205,7 +1205,7 @@ watch(() => graphState.value.selection.mode, (newMode, oldMode) => {
                   <div class="w-2.5 h-2.5 rounded-full" :style="{ backgroundColor: getNodeColor(selectedNode.type) }" />
                   <span class="text-xs uppercase tracking-wider" :style="{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }">{{ selectedNode.type }}</span>
                 </div>
-                <button class="opacity-50 hover:opacity-100 text-xs" @click="selectedNode = null">✕</button>
+                <button class="opacity-50 hover:opacity-100 text-xs" @click="closeDetail">✕</button>
               </div>
               <h3 class="text-base font-semibold mt-2" :style="{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }">{{ selectedNode.id }}</h3>
             </div>
@@ -1292,10 +1292,10 @@ watch(() => graphState.value.selection.mode, (newMode, oldMode) => {
 }
 
 .slide-in-left-enter-from {
-  transform: translateX(100%);
+  transform: translateX(-100%);
 }
 
 .slide-in-left-leave-to {
-  transform: translateX(100%);
+  transform: translateX(-100%);
 }
 </style>
