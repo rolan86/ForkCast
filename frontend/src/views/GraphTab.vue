@@ -3,15 +3,32 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useProjectStore } from '@/stores/project.js'
 import { buildGraph, getGraphData, streamGraphBuild } from '@/api/graphs.js'
+import { useGraphState } from '@/composables/useGraphState.js'
+import { NEON_COLORS, LAYOUT_TYPES, RENDER_MODES, PERFORMANCE_THRESHOLDS, VISUAL_MODES, INTERACTION_MODES } from '@/constants/graph.js'
+import { renderHybrid } from '@/utils/graph/rendering/hybridRenderer.js'
+import { runForceLayout, runForceLayoutWithEdgeStrength } from '@/utils/graph/layouts/force.js'
+import { runHierarchicalLayout } from '@/utils/graph/layouts/hierarchical.js'
+import { runCircularLayout } from '@/utils/graph/layouts/circular.js'
+import { runClusteredLayout } from '@/utils/graph/layouts/clustered.js'
+import { animateLayoutTransition } from '@/utils/graph/rendering/transition.js'
+import { findShortestPath, findNeighbors, findNodesInLasso } from '@/utils/graph/interactions/modes.js'
 import EmptyState from '@/components/EmptyState.vue'
 import ProgressPanel from '@/components/ProgressPanel.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import GraphErrorBoundary from '@/components/graph/GraphErrorBoundary.vue'
+import GraphTopBar from '@/components/graph/GraphTopBar.vue'
+import GraphSettingsPanel from '@/components/graph/GraphSettingsPanel.vue'
+import GraphStatsPanel from '@/components/graph/GraphStatsPanel.vue'
+import GraphMiniMap from '@/components/graph/GraphMiniMap.vue'
 import { Search, Plus, Minus, RotateCcw } from 'lucide-vue-next'
 import * as d3 from 'd3'
 
 const route = useRoute()
 const store = useProjectStore()
 const projectId = computed(() => route.params.id)
+
+// Graph state composable for UI state management
+const { graphState, updateLayout, updateSelection, updateView, updateClustering, updateVisualMode, autoSelectRenderMode } = useGraphState()
 
 // State: 'empty' | 'building' | 'ready'
 const viewState = ref('empty')
@@ -23,12 +40,24 @@ const selectedNode = ref(null)
 const searchQuery = ref('')
 const activeFilters = ref([])
 
+// Settings panel state
+const settingsPanelOpen = ref(false)
+const showStats = ref(false)
+const showMiniMap = ref(false)
+const isLayoutLoading = ref(false)
+
 // D3 refs
 const svgContainer = ref(null)
 let simulation = null
 let sseConnection = null
 let _zoomBehavior = null
 let _svgSelection = null
+let _hybridRenderer = null // Hybrid renderer instance
+
+// Lasso selection state
+let _lassoPath = null
+let _lassoPoints = []
+let _isDrawingLasso = false
 
 const GRAPH_BUILD_STEPS = [
   { label: 'Extract text', stageNames: ['extracting_text'] },
@@ -38,12 +67,16 @@ const GRAPH_BUILD_STEPS = [
   { label: 'Build graph', stageNames: ['building_graph', 'indexing', 'registering'] },
 ]
 
-const NODE_COLORS = {
-  Person: '#3b82f6',
-  Organization: '#8b5cf6',
-  Concept: '#6366f1',
-  Topic: '#10b981',
-  Event: '#f59e0b',
+// Use neon colors from constants (2.5D styling)
+// Fallback to original colors for entity types not yet in NEON_COLORS
+const getNodeColor = (type) => {
+  return NEON_COLORS[type] || {
+    Person: '#3b82f6',
+    Organization: '#8b5cf6',
+    Concept: '#6366f1',
+    Topic: '#10b981',
+    Event: '#f59e0b',
+  }[type] || '#6366f1'
 }
 
 onMounted(() => {
@@ -57,6 +90,7 @@ onMounted(() => {
 onUnmounted(() => {
   sseConnection?.close()
   simulation?.stop()
+  _hybridRenderer?.destroy()
 })
 
 async function loadGraphData() {
@@ -110,6 +144,7 @@ function retryBuild() {
 
 function confirmRebuild() {
   showRebuildModal.value = false
+  settingsPanelOpen.value = false // Close settings panel
   startBuild()
 }
 
@@ -130,6 +165,105 @@ function renderGraph() {
   const width = container.clientWidth
   const height = container.clientHeight || 500
 
+  // Auto-select render mode based on node count
+  const nodeCount = graphData.value.nodes.length
+  autoSelectRenderMode(nodeCount)
+
+  // Use hybrid renderer if in hybrid mode
+  const shouldUseHybrid = graphState.value.renderMode === RENDER_MODES.HYBRID
+
+  if (shouldUseHybrid) {
+    renderGraphHybrid(container, width, height)
+  } else {
+    renderGraphLegacy(container, width, height)
+  }
+
+  // Setup lasso event listeners if in lasso mode
+  setupLassoEvents()
+}
+
+/**
+ * Setup lasso selection event listeners
+ */
+function setupLassoEvents() {
+  if (!svgContainer.value || graphState.value.selection.mode !== INTERACTION_MODES.LASSO) {
+    return
+  }
+
+  const svg = d3.select(svgContainer.value).select('svg')
+  if (svg.empty()) return
+
+  // Remove existing lasso listeners
+  svg.on('.lasso', null)
+
+  // Add lasso listeners
+  svg
+    .on('mousedown.lasso', (event) => {
+      // Only start lasso if not clicking on a node
+      if (event.target.tagName !== 'circle') {
+        startLassoSelection(event)
+      }
+    })
+    .on('mousemove.lasso', (event) => {
+      if (_isDrawingLasso) {
+        updateLassoSelection(event)
+      }
+    })
+    .on('mouseup.lasso', () => {
+      if (_isDrawingLasso) {
+        completeLassoSelection()
+      }
+    })
+}
+
+/**
+ * Render graph using hybrid renderer (canvas edges + SVG nodes)
+ */
+function renderGraphHybrid(container, width, height) {
+  d3.select(container).selectAll('*').remove()
+
+  const nodes = graphData.value.nodes.map(n => ({ ...n }))
+  const edges = graphData.value.edges.map(e => ({ ...e }))
+
+  // Set up force simulation with entity-type gravity and connection-based edge strength
+  simulation = runForceLayoutWithEdgeStrength(nodes, edges, {
+    width,
+    height,
+    linkDistance: 80, // Base distance, will be adjusted by edge weight
+    chargeStrength: -200,
+    collideRadius: 8,
+    alphaDecay: 0.02,
+    velocityDecay: 0.4,
+    typeGravity: 0.1, // Enable entity-type gravity (same-type nodes attract)
+    centralBias: 0.05, // Enable central bias (high-centrality nodes toward center)
+    iterations: 0, // Run continuously for smooth animation
+  })
+
+  // Create hybrid renderer
+  _hybridRenderer = renderHybrid(
+    { nodes, edges },
+    container,
+    {
+      width,
+      height,
+      onNodeClick: selectNode,
+      enableAnimations: true,
+    }
+  )
+
+  // Link simulation to renderer
+  _hybridRenderer.setSimulation(simulation)
+
+  // Update zoom controls
+  _svgSelection = _hybridRenderer.nodeSvg
+  _zoomBehavior = _hybridRenderer.zoom
+}
+
+/**
+ * Render graph using legacy SVG/Canvas approach
+ * Preserves existing functionality
+ */
+function renderGraphLegacy(container, width, height) {
   d3.select(container).selectAll('*').remove()
 
   const svg = d3.select(container)
@@ -168,14 +302,19 @@ function renderGraph() {
   const useCanvas = nodes.length > 150
 
   if (useCanvas) {
-    simulation = d3.forceSimulation(nodes)
-      .force('link', d3.forceLink(edges).id(d => d.id).distance(80))
-      .force('charge', d3.forceManyBody().strength(-200))
-      .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collide', d3.forceCollide().radius(d => nodeRadius(d.id) + 8))
-      .stop()
-
-    for (let i = 0; i < 300; i++) simulation.tick()
+    // Use force layout utility with entity-type gravity and edge strength for canvas rendering
+    simulation = runForceLayoutWithEdgeStrength(nodes, edges, {
+      width,
+      height,
+      linkDistance: 80, // Base distance, will be adjusted by edge weight
+      chargeStrength: -200,
+      collideRadius: 8,
+      alphaDecay: 0.02,
+      velocityDecay: 0.4,
+      typeGravity: 0.1, // Enable entity-type gravity
+      centralBias: 0.05, // Enable central bias
+      iterations: 300, // Fixed iterations for canvas
+    })
 
     g.selectAll('line')
       .data(edges)
@@ -193,17 +332,23 @@ function renderGraph() {
       .attr('cx', d => d.x)
       .attr('cy', d => d.y)
       .attr('r', d => nodeRadius(d.id))
-      .attr('fill', d => NODE_COLORS[d.type] || '#6366f1')
+      .attr('fill', d => getNodeColor(d.type))
       .attr('opacity', 0.85)
       .on('click', (event, d) => selectNode(d))
   } else {
-    simulation = d3.forceSimulation(nodes)
-      .force('link', d3.forceLink(edges).id(d => d.id).distance(80))
-      .force('charge', d3.forceManyBody().strength(-200))
-      .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collide', d3.forceCollide().radius(d => nodeRadius(d.id) + 8))
-      .alphaDecay(0.02)
-      .velocityDecay(0.4)
+    // Use force layout utility with entity-type gravity and edge strength for SVG rendering
+    simulation = runForceLayoutWithEdgeStrength(nodes, edges, {
+      width,
+      height,
+      linkDistance: 80, // Base distance, will be adjusted by edge weight
+      chargeStrength: -200,
+      collideRadius: 8,
+      alphaDecay: 0.02,
+      velocityDecay: 0.4,
+      typeGravity: 0.1, // Enable entity-type gravity
+      centralBias: 0.05, // Enable central bias
+      iterations: 0, // Run continuously for smooth animation
+    })
 
     const link = g.selectAll('line')
       .data(edges)
@@ -215,7 +360,7 @@ function renderGraph() {
       .data(nodes)
       .join('circle')
       .attr('r', d => nodeRadius(d.id))
-      .attr('fill', d => NODE_COLORS[d.type] || '#6366f1')
+      .attr('fill', d => getNodeColor(d.type))
       .attr('opacity', 0.85)
       .attr('cursor', 'pointer')
       .on('click', (event, d) => selectNode(d))
@@ -258,6 +403,28 @@ function renderGraph() {
 }
 
 function selectNode(d) {
+  const currentMode = graphState.value.selection.mode
+
+  // Handle different interaction modes
+  switch (currentMode) {
+    case INTERACTION_MODES.PATH:
+      handlePathModeSelect(d)
+      break
+    case INTERACTION_MODES.NEIGHBOR:
+      handleNeighborModeSelect(d)
+      break
+    case INTERACTION_MODES.SELECT:
+    default:
+      handleSelectMode(d)
+      break
+  }
+}
+
+/**
+ * Handle node selection in SELECT mode
+ */
+function handleSelectMode(d) {
+  // Update local selectedNode for sidebar display
   selectedNode.value = {
     ...d,
     connections: graphData.value.edges
@@ -268,15 +435,549 @@ function selectNode(d) {
         type: graphData.value.nodes.find(n => n.id === ((e.source.id || e.source) === d.id ? (e.target.id || e.target) : (e.source.id || e.source)))?.type,
       })),
   }
+
+  // Update composable selection state
+  updateSelection({ nodes: [d.id] })
+}
+
+/**
+ * Handle node selection in PATH mode
+ */
+function handlePathModeSelect(d) {
+  const pathState = {
+    start: graphState.value.selection.pathStart,
+    end: graphState.value.selection.pathEnd,
+  }
+
+  // Determine which node to set
+  if (!pathState.start) {
+    // Set start node
+    updateSelection({ pathStart: d.id })
+    // Visual feedback for start node
+    highlightNode(d.id, 'path-start')
+  } else if (!pathState.end && d.id !== pathState.start) {
+    // Set end node and calculate path
+    updateSelection({ pathEnd: d.id })
+
+    const path = findShortestPath(
+      pathState.start,
+      d.id,
+      graphData.value.nodes,
+      graphData.value.edges
+    )
+
+    // Store path for visualization
+    graphState.value.selection.pathResult = path
+
+    // Highlight path nodes and edges
+    highlightPath(path)
+  } else {
+    // Reset and start new path
+    updateSelection({ pathStart: d.id, pathEnd: null, pathResult: [] })
+    clearHighlights()
+    highlightNode(d.id, 'path-start')
+  }
+}
+
+/**
+ * Handle node selection in NEIGHBOR mode
+ */
+function handleNeighborModeSelect(d) {
+  const hops = graphState.value.selection.neighborHops || 1
+  const neighbors = findNeighbors(d.id, hops, graphData.value.nodes, graphData.value.edges)
+
+  // Store neighbor set for visualization
+  graphState.value.selection.neighborResult = Array.from(neighbors)
+
+  // Highlight neighbor nodes
+  highlightNeighbors(d.id, neighbors)
+}
+
+/**
+ * Highlight a specific node
+ */
+function highlightNode(nodeId, className) {
+  if (!svgContainer.value) return
+  d3.select(svgContainer.value)
+    .selectAll('circle')
+    .filter(d => d.id === nodeId)
+    .classed(className, true)
+}
+
+/**
+ * Highlight shortest path
+ */
+function highlightPath(path) {
+  if (!svgContainer.value || !path.length) return
+
+  clearHighlights()
+
+  const pathSet = new Set(path)
+
+  // Highlight path nodes
+  d3.select(svgContainer.value)
+    .selectAll('circle')
+    .filter(d => pathSet.has(d.id))
+    .classed('in-path', true)
+
+  // Highlight path edges
+  d3.select(svgContainer.value)
+    .selectAll('line')
+    .filter(d => {
+      const source = d.source.id || d.source
+      const target = d.target.id || d.target
+      return pathSet.has(source) && pathSet.has(target)
+    })
+    .classed('in-path', true)
+}
+
+/**
+ * Highlight neighbor nodes
+ */
+function highlightNeighbors(centerId, neighbors) {
+  if (!svgContainer.value) return
+
+  clearHighlights()
+
+  const neighborSet = neighbors
+
+  // Highlight center node
+  d3.select(svgContainer.value)
+    .selectAll('circle')
+    .filter(d => d.id === centerId)
+    .classed('neighbor-center', true)
+
+  // Highlight neighbor nodes
+  d3.select(svgContainer.value)
+    .selectAll('circle')
+    .filter(d => neighborSet.has(d.id) && d.id !== centerId)
+    .classed('neighbor-highlight', true)
+}
+
+/**
+ * Clear all highlight classes
+ */
+function clearHighlights() {
+  if (!svgContainer.value) return
+
+  d3.select(svgContainer.value)
+    .selectAll('circle')
+    .classed('path-start', false)
+    .classed('path-end', false)
+    .classed('in-path', false)
+    .classed('neighbor-center', false)
+    .classed('neighbor-highlight', false)
+
+  d3.select(svgContainer.value)
+    .selectAll('line')
+    .classed('in-path', false)
+}
+
+/**
+ * Start lasso selection
+ */
+function startLassoSelection(event) {
+  if (graphState.value.selection.mode !== INTERACTION_MODES.LASSO) return
+
+  _isDrawingLasso = true
+  _lassoPoints = [[event.x, event.y]]
+
+  // Create lasso path element
+  const svg = d3.select(svgContainer.value).select('svg')
+  _lassoPath = svg.append('path')
+    .attr('class', 'lasso-selection')
+    .attr('fill', 'rgba(0, 212, 255, 0.1)')
+    .attr('stroke', '#00d4ff')
+    .attr('stroke-width', 2)
+    .attr('stroke-dasharray', '5, 5')
+
+  updateLassoPath()
+}
+
+/**
+ * Update lasso during drag
+ */
+function updateLassoSelection(event) {
+  if (!_isDrawingLasso) return
+
+  _lassoPoints.push([event.x, event.y])
+  updateLassoPath()
+}
+
+/**
+ * Complete lasso selection
+ */
+function completeLassoSelection() {
+  if (!_isDrawingLasso) return
+
+  _isDrawingLasso = false
+
+  // Find nodes within lasso
+  const selectedIds = findNodesInLasso(graphData.value.nodes, _lassoPoints)
+
+  if (selectedIds.length > 0) {
+    // Update selection with lasso results (limit to max 50)
+    const limitedIds = selectedIds.slice(0, 50)
+    updateSelection({ nodes: limitedIds })
+
+    // Highlight selected nodes
+    d3.select(svgContainer.value)
+      .selectAll('circle')
+      .filter(d => limitedIds.includes(d.id))
+      .classed('lasso-selected', true)
+  }
+
+  // Remove lasso path after a short delay
+  setTimeout(() => {
+    if (_lassoPath) {
+      _lassoPath.remove()
+      _lassoPath = null
+    }
+    _lassoPoints = []
+  }, 500)
+}
+
+/**
+ * Update lasso path visual
+ */
+function updateLassoPath() {
+  if (!_lassoPath || _lassoPoints.length < 2) return
+
+  // Create path string from points
+  const pathString = _lassoPoints.map((p, i) => {
+    return i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`
+  }).join(' ')
+
+  _lassoPath.attr('d', pathString + ' Z') // Close path
+}
+
+/**
+ * Cancel lasso selection
+ */
+function cancelLassoSelection() {
+  _isDrawingLasso = false
+
+  if (_lassoPath) {
+    _lassoPath.remove()
+    _lassoPath = null
+  }
+  _lassoPoints = []
+
+  // Clear lasso selection highlights
+  d3.select(svgContainer.value)
+    .selectAll('circle')
+    .classed('lasso-selected', false)
 }
 
 function closeDetail() {
   selectedNode.value = null
+  // Clear composable selection state
+  updateSelection({ nodes: [] })
+}
+
+/**
+ * Handle graph reset from error boundary
+ */
+function handleGraphReset() {
+  // Clear graph data and reload
+  graphData.value = null
+  selectedNode.value = null
+  searchQuery.value = ''
+  activeFilters.value = []
+  loadGraphData()
+}
+
+/**
+ * Handle layout change from toolbar
+ */
+function handleLayoutChange(layout) {
+  updateLayout(layout)
+
+  if (!graphData.value) return
+
+  // Stop current simulation
+  if (simulation) {
+    simulation.stop()
+  }
+
+  // Apply new layout based on selection
+  switch (layout) {
+    case LAYOUT_TYPES.HIERARCHICAL:
+      applyHierarchicalLayout()
+      break
+    case LAYOUT_TYPES.CIRCULAR:
+      applyCircularLayout()
+      break
+    case LAYOUT_TYPES.CLUSTERED:
+      applyClusteredLayout()
+      break
+    case LAYOUT_TYPES.FORCE:
+    default:
+      // Re-render with force layout (default)
+      renderGraph()
+      break
+  }
+}
+
+/**
+ * Apply hierarchical layout with animation
+ */
+function applyHierarchicalLayout() {
+  if (!svgContainer.value || !graphData.value) return
+
+  const container = svgContainer.value
+  const width = container.clientWidth
+  const height = container.clientHeight || 500
+
+  const result = runHierarchicalLayout(
+    graphData.value.nodes,
+    graphData.value.edges,
+    { width, height }
+  )
+
+  // Update node positions in graphData
+  graphData.value.nodes.forEach(node => {
+    const positionedNode = result.nodes.find(n => n.id === node.id)
+    if (positionedNode) {
+      node.x = positionedNode.x
+      node.y = positionedNode.y
+    }
+  })
+
+  // Re-render with new positions
+  renderGraph()
+}
+
+/**
+ * Apply circular layout with animation
+ */
+function applyCircularLayout() {
+  if (!svgContainer.value || !graphData.value) return
+
+  const container = svgContainer.value
+  const width = container.clientWidth
+  const height = container.clientHeight || 500
+
+  const result = runCircularLayout(
+    graphData.value.nodes,
+    graphData.value.edges,
+    { width, height }
+  )
+
+  // Update node positions in graphData
+  graphData.value.nodes.forEach(node => {
+    const positionedNode = result.nodes.find(n => n.id === node.id)
+    if (positionedNode) {
+      node.x = positionedNode.x
+      node.y = positionedNode.y
+    }
+  })
+
+  // Re-render with new positions
+  renderGraph()
+}
+
+/**
+ * Apply clustered layout with community detection
+ */
+function applyClusteredLayout() {
+  if (!svgContainer.value || !graphData.value) return
+
+  const container = svgContainer.value
+  const width = container.clientWidth
+  const height = container.clientHeight || 500
+
+  const result = runClusteredLayout(
+    graphData.value.nodes,
+    graphData.value.edges,
+    { width, height }
+  )
+
+  // Update node positions in graphData
+  graphData.value.nodes.forEach(node => {
+    const positionedNode = result.nodes.find(n => n.id === node.id)
+    if (positionedNode) {
+      node.x = positionedNode.x
+      node.y = positionedNode.y
+    }
+  })
+
+  // Update clustering state if result includes clustering info
+  if (result.clustering) {
+    // Update cluster count in stats
+    graphStats.value.clusterCount = result.clustering.clusterCount
+  }
+
+  // Re-render with new positions
+  renderGraph()
+}
+
+/**
+ * Handle interaction mode change from toolbar
+ */
+function handleModeChange(mode) {
+  updateSelection({ mode })
+  console.log('Interaction mode changed to:', mode)
+}
+
+/**
+ * Handle clustering toggle from toolbar
+ */
+function handleClusteringToggle() {
+  const currentEnabled = graphState.value.clustering.enabled
+  updateClustering({ enabled: !currentEnabled })
+  console.log('Clustering toggled:', !currentEnabled)
+}
+
+/**
+ * Handle expand all clusters
+ */
+function handleExpandAllClusters() {
+  // Will be implemented with clustering functionality
+  console.log('Expand all clusters')
+}
+
+/**
+ * Handle collapse all clusters
+ */
+function handleCollapseAllClusters() {
+  // Will be implemented with clustering functionality
+  console.log('Collapse all clusters')
+}
+
+/**
+ * Handle visual mode toggle
+ */
+function handleVisualModeToggle() {
+  const currentMode = graphState.value.visualMode
+  updateVisualMode(currentMode === VISUAL_MODES.TWO_POINT_FIVE_D ? VISUAL_MODES.TWO_D : VISUAL_MODES.TWO_POINT_FIVE_D)
+}
+
+/**
+ * Handle render mode change
+ */
+function handleRenderModeChange(renderMode) {
+  updateRenderMode(renderMode)
+  // Re-render graph with new render mode
+  if (graphData.value) {
+    renderGraph()
+  }
+}
+
+/**
+ * Handle performance mode toggle
+ */
+function handlePerformanceModeToggle() {
+  const currentMode = graphState.value.performance.performanceMode
+  updatePerformanceMode(!currentMode)
+
+  // Re-render graph with new performance settings
+  if (graphData.value) {
+    renderGraph()
+  }
+}
+
+/**
+ * Fit graph to screen
+ */
+function fitToScreen() {
+  if (_svgSelection && _zoomBehavior) {
+    _svgSelection.transition().duration(500).call(_zoomBehavior.transform, d3.zoomIdentity)
+  }
+}
+
+/**
+ * Handle mini-map navigation
+ */
+function handleMiniMapNavigation({ x, y }) {
+  if (_svgSelection && _zoomBehavior) {
+    _svgSelection.transition().duration(300).call(
+      _zoomBehavior.transform,
+      d3.zoomIdentity.translate(x, y)
+    )
+  }
+}
+
+/**
+ * Toggle settings panel
+ */
+function toggleSettings() {
+  settingsPanelOpen.value = !settingsPanelOpen.value
+}
+
+/**
+ * Close settings panel
+ */
+function closeSettings() {
+  settingsPanelOpen.value = false
+}
+
+/**
+ * Handle layout change from settings panel
+ */
+async function handleLayoutChange(newLayout) {
+  isLayoutLoading.value = true
+  try {
+    await updateLayout(newLayout)
+    if (graphData.value) {
+      renderGraph()
+    }
+  } finally {
+    isLayoutLoading.value = false
+  }
+}
+
+/**
+ * Handle stats toggle from settings panel
+ */
+function handleStatsToggle(show) {
+  showStats.value = show
+}
+
+/**
+ * Handle mini-map toggle from settings panel
+ */
+function handleMiniMapToggle(show) {
+  showMiniMap.value = show
 }
 
 const entityTypes = computed(() => {
   if (!graphData.value) return []
   return [...new Set(graphData.value.nodes.map(n => n.type).filter(Boolean))]
+})
+
+// Stats for GraphStatsPanel
+const graphStats = computed(() => ({
+  nodeCount: graphData.value?.nodes.length || 0,
+  edgeCount: graphData.value?.edges.length || 0,
+  clusterCount: 0, // Will be updated when clustering is implemented
+  selectedCount: graphState.value.selection.nodes.length,
+  layout: graphState.value.layout,
+}))
+
+// Bounds for mini-map
+const mainViewBounds = computed(() => {
+  if (!svgContainer.value) return { x: 0, y: 0, w: 1000, h: 1000 }
+  const rect = svgContainer.value.getBoundingClientRect()
+  return {
+    x: 0,
+    y: 0,
+    w: rect.width || 1000,
+    h: rect.height || 1000,
+  }
+})
+
+// Current viewport for mini-map
+const currentViewport = computed(() => {
+  if (!_svgSelection || !_zoomBehavior) return { x: 0, y: 0, w: 0, h: 0 }
+  // Try to get current transform
+  const transform = d3.zoomTransform(_svgSelection.node())
+  return {
+    x: transform.x,
+    y: transform.y,
+    w: (mainViewBounds.value.w / transform.k),
+    h: (mainViewBounds.value.h / transform.k),
+  }
 })
 
 function toggleFilter(type) {
@@ -323,6 +1024,26 @@ function nodeRadiusFor(id) {
 }
 
 watch([searchQuery, activeFilters], applySearchAndFilters, { deep: true })
+
+// Watch for interaction mode changes
+watch(() => graphState.value.selection.mode, (newMode, oldMode) => {
+  // Cancel any ongoing lasso when leaving lasso mode
+  if (oldMode === INTERACTION_MODES.LASSO && _isDrawingLasso) {
+    cancelLassoSelection()
+  }
+
+  // Setup lasso events when entering lasso mode
+  if (newMode === INTERACTION_MODES.LASSO && svgContainer.value) {
+    nextTick(() => {
+      setupLassoEvents()
+    })
+  }
+
+  // Clear highlights when switching modes
+  if (newMode !== oldMode) {
+    clearHighlights()
+  }
+})
 </script>
 
 <template>
@@ -353,87 +1074,142 @@ watch([searchQuery, activeFilters], applySearchAndFilters, { deep: true })
   </div>
 
   <!-- Ready state: interactive graph -->
-  <div v-else class="h-full flex relative">
-    <div class="flex-1 relative">
-      <div class="absolute top-3 left-3 right-3 z-10 flex gap-2">
-        <div
-          class="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border"
-          :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }"
-        >
-          <Search :size="14" :style="{ color: 'var(--text-tertiary)' }" />
-          <input
-            v-model="searchQuery"
-            placeholder="Search entities..."
-            class="flex-1 text-sm bg-transparent outline-none"
-            :style="{ color: 'var(--text-primary)' }"
+  <GraphErrorBoundary
+    v-else
+    @reset="handleGraphReset"
+  >
+    <div class="h-full flex relative">
+      <div class="flex-1 relative">
+        <!-- Toolbar (absolute positioned) -->
+        <GraphToolbar
+          class="absolute top-3 left-3 right-3 z-20"
+          :currentLayout="graphState.layout"
+          :currentMode="graphState.selection.mode"
+          :clusteringEnabled="graphState.clustering.enabled"
+          :canExpandClusters="true"
+          :visualMode="graphState.visualMode"
+          :renderMode="graphState.renderMode"
+          :performanceMode="graphState.performance.performanceMode"
+          @select-layout="handleLayoutChange"
+          @select-mode="handleModeChange"
+          @toggle-clustering="handleClusteringToggle"
+          @expand-all="handleExpandAllClusters"
+          @collapse-all="handleCollapseAllClusters"
+          @reset-view="zoomReset"
+          @fit-to-screen="fitToScreen"
+          @toggle-visual-mode="handleVisualModeToggle"
+          @select-render-mode="handleRenderModeChange"
+          @toggle-performance-mode="handlePerformanceModeToggle"
+        />
+
+        <!-- Stats panel (top-left, positioned below toolbar) -->
+        <div class="absolute top-16 left-3 z-10">
+          <GraphStatsPanel
+            v-if="graphData"
+            :nodeCount="graphStats.nodeCount"
+            :edgeCount="graphStats.edgeCount"
+            :clusterCount="graphStats.clusterCount"
+            :selectedCount="graphStats.selectedCount"
+            :layout="graphStats.layout"
           />
         </div>
-        <div class="flex gap-1 items-center">
-          <button
-            v-for="type in entityTypes"
-            :key="type"
-            class="px-2.5 py-1.5 rounded-md text-xs font-medium text-white transition-opacity"
-            :style="{ backgroundColor: NODE_COLORS[type] || '#6366f1', opacity: activeFilters.length && !activeFilters.includes(type) ? 0.4 : 1 }"
-            @click="toggleFilter(type)"
-          >{{ type }}</button>
-        </div>
-      </div>
 
-      <div ref="svgContainer" class="w-full h-full min-h-[500px]" />
-
-      <div class="absolute bottom-3 left-3 flex gap-1">
-        <button class="w-8 h-8 rounded-md border flex items-center justify-center" :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }" @click="zoomIn"><Plus :size="14" /></button>
-        <button class="w-8 h-8 rounded-md border flex items-center justify-center" :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }" @click="zoomOut"><Minus :size="14" /></button>
-        <button class="w-8 h-8 rounded-md border flex items-center justify-center" :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }" @click="zoomReset"><RotateCcw :size="12" /></button>
-      </div>
-      <div class="absolute bottom-3 right-3">
-        <button
-          class="px-3 py-1.5 rounded-md border text-xs"
-          :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', color: 'var(--text-secondary)', boxShadow: 'var(--shadow-sm)' }"
-          @click="showRebuildModal = true"
-        >Rebuild Graph</button>
-      </div>
-    </div>
-
-    <div
-      v-if="selectedNode"
-      class="w-[260px] border-l shrink-0 overflow-y-auto"
-      :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', transition: 'width var(--duration-slow) var(--ease-out)' }"
-    >
-      <div class="p-4 border-b" :style="{ borderColor: 'var(--border)' }">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <div class="w-2.5 h-2.5 rounded-full" :style="{ backgroundColor: NODE_COLORS[selectedNode.type] || '#6366f1' }" />
-            <span class="text-xs uppercase tracking-wider" :style="{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }">{{ selectedNode.type }}</span>
+        <!-- Search and filter controls -->
+        <div class="absolute top-3 left-3 right-3 z-10 flex gap-2">
+          <div
+            class="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border"
+            :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }"
+          >
+            <Search :size="14" :style="{ color: 'var(--text-tertiary)' }" />
+            <input
+              v-model="searchQuery"
+              placeholder="Search entities..."
+              class="flex-1 text-sm bg-transparent outline-none"
+              :style="{ color: 'var(--text-primary)' }"
+            />
           </div>
-          <button class="opacity-50 hover:opacity-100 text-xs" @click="closeDetail">✕</button>
+          <div class="flex gap-1 items-center">
+            <button
+              v-for="type in entityTypes"
+              :key="type"
+              class="px-2.5 py-1.5 rounded-md text-xs font-medium text-white transition-opacity"
+              :style="{ backgroundColor: getNodeColor(type), opacity: activeFilters.length && !activeFilters.includes(type) ? 0.4 : 1 }"
+              @click="toggleFilter(type)"
+            >{{ type }}</button>
+          </div>
         </div>
-        <h3 class="text-base font-semibold mt-2" :style="{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }">{{ selectedNode.id }}</h3>
+
+        <!-- SVG container (fills the space) -->
+        <div ref="svgContainer" class="w-full h-full min-h-[500px]" />
+
+        <!-- Zoom controls (bottom-left) -->
+        <div class="absolute bottom-3 left-3 flex gap-1">
+          <button class="w-8 h-8 rounded-md border flex items-center justify-center" :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }" @click="zoomIn"><Plus :size="14" /></button>
+          <button class="w-8 h-8 rounded-md border flex items-center justify-center" :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }" @click="zoomOut"><Minus :size="14" /></button>
+          <button class="w-8 h-8 rounded-md border flex items-center justify-center" :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }" @click="zoomReset"><RotateCcw :size="12" /></button>
+        </div>
+
+        <!-- Mini-map and rebuild button (bottom-right) -->
+        <div class="absolute bottom-3 right-3">
+          <!-- Mini-map -->
+          <GraphMiniMap
+            v-if="graphData"
+            class="mb-2"
+            :nodes="graphData.nodes || []"
+            :viewport="currentViewport"
+            :mainViewBounds="mainViewBounds"
+            @navigate-to="handleMiniMapNavigation"
+          />
+          <button
+            class="px-3 py-1.5 rounded-md border text-xs"
+            :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', color: 'var(--text-secondary)', boxShadow: 'var(--shadow-sm)' }"
+            @click="showRebuildModal = true"
+          >Rebuild Graph</button>
+        </div>
       </div>
-      <div class="p-4">
-        <div v-if="selectedNode.description" class="mb-4">
-          <p class="text-xs uppercase tracking-wider mb-1" :style="{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }">Description</p>
-          <p class="text-sm leading-relaxed" :style="{ color: 'var(--text-secondary)' }">{{ selectedNode.description }}</p>
+
+      <!-- Sidebar -->
+      <div
+        v-if="selectedNode"
+        class="w-[260px] border-l shrink-0 overflow-y-auto"
+        :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', transition: 'width var(--duration-slow) var(--ease-out)' }"
+      >
+        <div class="p-4 border-b" :style="{ borderColor: 'var(--border)' }">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <div class="w-2.5 h-2.5 rounded-full" :style="{ backgroundColor: getNodeColor(selectedNode.type) }" />
+              <span class="text-xs uppercase tracking-wider" :style="{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }">{{ selectedNode.type }}</span>
+            </div>
+            <button class="opacity-50 hover:opacity-100 text-xs" @click="closeDetail">✕</button>
+          </div>
+          <h3 class="text-base font-semibold mt-2" :style="{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }">{{ selectedNode.id }}</h3>
         </div>
-        <div v-if="selectedNode.connections?.length">
-          <p class="text-xs uppercase tracking-wider mb-2" :style="{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }">Connected To</p>
-          <div class="space-y-1.5">
-            <div
-              v-for="conn in selectedNode.connections"
-              :key="conn.node"
-              class="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer"
-              :style="{ backgroundColor: 'var(--surface-sunken)' }"
-            >
-              <div class="w-2 h-2 rounded-full" :style="{ backgroundColor: NODE_COLORS[conn.type] || '#6366f1' }" />
-              <span class="text-sm flex-1" :style="{ color: 'var(--text-primary)' }">{{ conn.node }}</span>
-              <span class="text-xs" :style="{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }">{{ conn.label }}</span>
+        <div class="p-4">
+          <div v-if="selectedNode.description" class="mb-4">
+            <p class="text-xs uppercase tracking-wider mb-1" :style="{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }">Description</p>
+            <p class="text-sm leading-relaxed" :style="{ color: 'var(--text-secondary)' }">{{ selectedNode.description }}</p>
+          </div>
+          <div v-if="selectedNode.connections?.length">
+            <p class="text-xs uppercase tracking-wider mb-2" :style="{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }">Connected To</p>
+            <div class="space-y-1.5">
+              <div
+                v-for="conn in selectedNode.connections"
+                :key="conn.node"
+                class="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer"
+                :style="{ backgroundColor: 'var(--surface-sunken)' }"
+              >
+                <div class="w-2 h-2 rounded-full" :style="{ backgroundColor: getNodeColor(conn.type) }" />
+                <span class="text-sm flex-1" :style="{ color: 'var(--text-primary)' }">{{ conn.node }}</span>
+                <span class="text-xs" :style="{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }">{{ conn.label }}</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
+  </GraphErrorBoundary>
 
-    <ConfirmModal
+  <ConfirmModal
       v-if="showRebuildModal"
       title="Rebuild Knowledge Graph?"
       message="This will build a new knowledge graph. Existing simulations keep their original graph data. New simulations will use the rebuilt graph."
@@ -442,5 +1218,4 @@ watch([searchQuery, activeFilters], applySearchAndFilters, { deep: true })
       @confirm="confirmRebuild"
       @cancel="showRebuildModal = false"
     />
-  </div>
 </template>
