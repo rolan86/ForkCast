@@ -1247,16 +1247,6 @@ watch(() => graphState.value.selection.mode, (newMode, oldMode) => {
       @cancel="showRebuildModal = false"
     />
   </GraphErrorBoundary>
-
-  <ConfirmModal
-      v-if="showRebuildModal"
-      title="Rebuild Knowledge Graph?"
-      message="This will build a new knowledge graph. Existing simulations keep their original graph data. New simulations will use the rebuilt graph."
-      confirmLabel="Rebuild"
-      variant="warning"
-      @confirm="confirmRebuild"
-      @cancel="showRebuildModal = false"
-    />
 </template>
 
 <style scoped>
