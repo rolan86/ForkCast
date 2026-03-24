@@ -40,6 +40,8 @@ class LLMResponse:
 class ClaudeClient:
     """Wrapper around the Anthropic SDK with retry, usage tracking, and convenience methods."""
 
+    default_model: str = DEFAULT_MODEL
+
     def __init__(self, api_key: str, default_model: str = DEFAULT_MODEL):
         self._client = anthropic.Anthropic(api_key=api_key)
         self.default_model = default_model

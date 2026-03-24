@@ -165,6 +165,10 @@ def prepare_simulation(
         )
     profiles_path = profiles_dir / "agents.json"
 
+    # Read user timing overrides from DB row (may be None)
+    user_total_hours = sim["total_hours"] if sim["total_hours"] else None
+    user_minutes_per_round = sim["minutes_per_round"] if sim["minutes_per_round"] else None
+
     # 5. Generate config
     _progress("generating_config")
     config, config_tokens = generate_config(
@@ -173,6 +177,8 @@ def prepare_simulation(
         requirement=project["requirement"],
         config_template=config_template,
         model=prep_model,
+        user_total_hours=user_total_hours,
+        user_minutes_per_round=user_minutes_per_round,
     )
 
     # 6. Persist config and update simulation status
@@ -191,7 +197,7 @@ def prepare_simulation(
         conn.execute(
             "INSERT INTO token_usage (project_id, stage, model, input_tokens, output_tokens, created_at) "
             "VALUES (?, 'simulation_prep', ?, ?, ?, datetime('now'))",
-            (project_id, client.default_model, total_input, total_output),
+            (project_id, str(client.default_model), total_input, total_output),
         )
 
     _progress("complete")

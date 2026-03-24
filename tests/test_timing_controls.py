@@ -325,3 +325,57 @@ class TestConfigGeneratorTimingOverride:
 
         assert config.total_hours == 1.0  # Below LLM clamp minimum of 12
         assert config.minutes_per_round == 10  # Below LLM clamp minimum of 15
+
+
+class TestPreparePassesTiming:
+    def test_prepare_reads_timing_from_db(self, tmp_db_path, tmp_data_dir, tmp_domains_dir):
+        """When timing columns have values, they are passed to generate_config."""
+        from unittest.mock import patch, MagicMock
+        from forkcast.simulation.prepare import prepare_simulation
+        from forkcast.llm.client import ClaudeClient
+
+        # Set up DB with timing values
+        with get_db(tmp_db_path) as conn:
+            conn.execute(
+                "INSERT INTO projects (id, domain, name, status, requirement, created_at) "
+                "VALUES ('p1', '_default', 'Test', 'created', 'req', datetime('now'))"
+            )
+            conn.execute(
+                "INSERT INTO graphs (id, project_id, status, node_count, edge_count, file_path) "
+                "VALUES ('g1', 'p1', 'complete', 2, 1, ?)",
+                (str(tmp_data_dir / "p1" / "graph.json"),)
+            )
+            conn.execute(
+                "INSERT INTO simulations (id, project_id, graph_id, status, total_hours, minutes_per_round) "
+                "VALUES ('s1', 'p1', 'g1', 'created', 6.0, 30)"
+            )
+
+        # Create minimal graph file
+        graph_dir = tmp_data_dir / "p1"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        graph_file = graph_dir / "graph.json"
+        graph_file.write_text(json.dumps({
+            "nodes": [{"id": "Alice", "type": "Person", "description": "researcher"}],
+            "edges": [],
+        }))
+
+        client = MagicMock(spec=ClaudeClient)
+
+        with patch("forkcast.simulation.prepare.generate_profiles") as mock_gen_profiles, \
+             patch("forkcast.simulation.prepare.generate_config") as mock_gen_config:
+
+            mock_gen_profiles.return_value = (_make_profiles(1), {"input": 0, "output": 0})
+            mock_gen_config.return_value = (MagicMock(to_dict=lambda: {}), {"input": 0, "output": 0})
+
+            prepare_simulation(
+                db_path=tmp_db_path,
+                data_dir=tmp_data_dir,
+                simulation_id="s1",
+                client=client,
+                domains_dir=tmp_domains_dir,
+            )
+
+            # Verify generate_config was called with user timing
+            call_kwargs = mock_gen_config.call_args.kwargs
+            assert call_kwargs.get("user_total_hours") == 6.0
+            assert call_kwargs.get("user_minutes_per_round") == 30
