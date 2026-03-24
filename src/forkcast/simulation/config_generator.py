@@ -41,6 +41,8 @@ def generate_config(
     requirement: str,
     config_template: str,
     model: str | None = None,
+    user_total_hours: float | None = None,
+    user_minutes_per_round: int | None = None,
 ) -> tuple[SimulationConfig, dict[str, int]]:
     """Generate simulation config using extended thinking.
 
@@ -68,9 +70,17 @@ def generate_config(
 
     data = json.loads(strip_code_fences(response.text))
 
+    # Determine timing: user override (both or neither) or LLM with clamps
+    if user_total_hours is not None and user_minutes_per_round is not None:
+        final_total_hours = user_total_hours
+        final_minutes_per_round = user_minutes_per_round
+    else:
+        final_total_hours = int(_clamp(data.get("total_hours", 48), 12, 168))
+        final_minutes_per_round = int(_clamp(data.get("minutes_per_round", 30), 15, 60))
+
     config = SimulationConfig(
-        total_hours=int(_clamp(data.get("total_hours", 48), 12, 168)),
-        minutes_per_round=int(_clamp(data.get("minutes_per_round", 30), 15, 60)),
+        total_hours=final_total_hours,
+        minutes_per_round=final_minutes_per_round,
         peak_hours=data.get("peak_hours", [9, 10, 11, 12, 17, 18, 19]),
         off_peak_hours=data.get("off_peak_hours", [0, 1, 2, 3, 4, 5]),
         peak_multiplier=float(_clamp(data.get("peak_multiplier", 1.5), 1.0, 3.0)),

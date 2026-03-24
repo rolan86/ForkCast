@@ -3,6 +3,7 @@
 import json
 import sqlite3
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -10,6 +11,9 @@ from httpx import ASGITransport, AsyncClient
 from forkcast.api.app import create_app
 from forkcast.db.connection import get_db, init_db
 from forkcast.db.schema import SCHEMA_VERSION
+from forkcast.llm.client import LLMResponse
+from forkcast.simulation.config_generator import generate_config
+from forkcast.simulation.models import AgentProfile
 
 
 class TestSchemaV5:
@@ -228,3 +232,96 @@ class TestTimingAPI:
         sim = next(s for s in sims if s["id"] == sim_id)
         assert sim["total_hours"] == 6
         assert sim["minutes_per_round"] == 30
+
+
+def _make_profiles(count=2):
+    return [
+        AgentProfile(
+            agent_id=i, name=f"Agent {i}", username=f"agent{i}", bio=f"Bio {i}",
+            persona=f"Persona {i}", age=30 + i, gender="nonbinary",
+            profession="Analyst", interests=["data"],
+            entity_type="Person", entity_source=f"Entity {i}",
+        )
+        for i in range(count)
+    ]
+
+
+def _mock_config_response():
+    config_json = json.dumps({
+        "total_hours": 48, "minutes_per_round": 30,
+        "peak_hours": [9, 10, 17, 18], "off_peak_hours": [0, 1, 2, 3],
+        "peak_multiplier": 1.5, "off_peak_multiplier": 0.3,
+        "seed_posts": ["Breaking news"], "hot_topics": ["policy"],
+        "narrative_direction": "escalating",
+        "agent_configs": [{"agent_id": 0, "activity_level": 0.7}],
+        "platform_config": {"feed_weights": {"recency": 0.4}},
+    })
+    return LLMResponse(text=config_json, input_tokens=800, output_tokens=600)
+
+
+class TestConfigGeneratorTimingOverride:
+    def test_user_timing_overrides_llm(self):
+        client = MagicMock()
+        client.smart_call.return_value = _mock_config_response()
+
+        config, tokens = generate_config(
+            client=client,
+            profiles=_make_profiles(2),
+            requirement="Predict impact",
+            config_template="Entities: {{ entities_summary }}",
+            user_total_hours=6.0,
+            user_minutes_per_round=30,
+        )
+
+        assert config.total_hours == 6.0
+        assert config.minutes_per_round == 30
+        client.smart_call.assert_called_once()
+        assert config.seed_posts == ["Breaking news"]
+        assert config.hot_topics == ["policy"]
+
+    def test_no_user_timing_uses_llm_values(self):
+        client = MagicMock()
+        client.smart_call.return_value = _mock_config_response()
+
+        config, _ = generate_config(
+            client=client,
+            profiles=_make_profiles(2),
+            requirement="Predict impact",
+            config_template="Entities: {{ entities_summary }}",
+        )
+
+        assert config.total_hours == 48
+        assert config.minutes_per_round == 30
+
+    def test_partial_user_timing_uses_llm(self):
+        """If only one timing value is provided, both come from LLM."""
+        client = MagicMock()
+        client.smart_call.return_value = _mock_config_response()
+
+        config, _ = generate_config(
+            client=client,
+            profiles=_make_profiles(2),
+            requirement="Predict impact",
+            config_template="Entities: {{ entities_summary }}",
+            user_total_hours=6.0,
+            user_minutes_per_round=None,
+        )
+
+        assert config.total_hours == 48  # LLM value, not 6.0
+
+    def test_user_timing_not_clamped_to_llm_ranges(self):
+        """User values can go below the LLM clamp minimum (e.g., 1 hour)."""
+        client = MagicMock()
+        client.smart_call.return_value = _mock_config_response()
+
+        config, _ = generate_config(
+            client=client,
+            profiles=_make_profiles(2),
+            requirement="Predict impact",
+            config_template="Entities: {{ entities_summary }}",
+            user_total_hours=1.0,
+            user_minutes_per_round=10,
+        )
+
+        assert config.total_hours == 1.0  # Below LLM clamp minimum of 12
+        assert config.minutes_per_round == 10  # Below LLM clamp minimum of 15
