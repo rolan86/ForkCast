@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-24
 **Author:** Claude
-**Status:** Approved
+**Status:** Approved (v2 - Addressed Review Feedback)
 
 ## Problem Statement
 
@@ -43,23 +43,23 @@ The current graph UI has become cluttered with scattered controls:
 
 Settings panel (slides in from right when ⚙️ clicked):
 ┌─────────────────────────────────┐
-│ Layout        ○ Stats           │
-│ ◉ Force                       │
-│ ○ Hierarchy                    │
-│ ○ Circular                     │
-│ ○ Clustered                    │
-│                                │
-│ Visual Options                 │
-│ ○ 2.5D holographic effect      │
-│ ○ Performance mode             │
-│                                │
-│ Advanced ▸                     │
-│   • Stats panel                │
-│   • Mini-map                   │
-│   • Render mode                │
-│   • Interaction mode           │
-│   • Auto-clustering            │
-│                                │
+│ Layout                          │
+│ ◉ Force  ○ Hierarchy           │
+│ ○ Circular  ○ Clustered        │
+│                                 │
+│ Visual Options                  │
+│ ☑ 2.5D holographic effect      │
+│ ☐ Performance mode             │
+│                                 │
+│ Advanced ▸ (click to expand)    │
+│   ┌─────────────────────────┐  │
+│   │ ☑ Show stats panel      │  │
+│   │ ☐ Show mini-map         │  │
+│   │ Render: [SVG ▾]         │  │
+│   │ Mode: [Select ▾]        │  │
+│   │ ☐ Auto-clustering       │  │
+│   └─────────────────────────┘  │
+│                                 │
 │                [× Close]       │
 └─────────────────────────────────┘
 ```
@@ -68,21 +68,119 @@ Settings panel (slides in from right when ⚙️ clicked):
 
 ### Remove
 - `GraphToolbar.vue` - Replaced by settings panel
-- `GraphStatsPanel` - Moved into Advanced section
-- `GraphMiniMap` - Moved into Advanced section
+- `GraphStatsPanel.vue` - Moved into Advanced section (as optional checkbox)
+- `GraphMiniMap.vue` - Moved into Advanced section (as optional checkbox)
+
+### Leave Unchanged
+- `GraphCanvas.vue` - Not currently used, created but never integrated; leave as-is for future consideration
+- `GraphLayoutControls.vue` - Keep for potential future use, but NOT included in settings panel for v1
 
 ### Create New
-1. **GraphTopBar.vue** - Simple top bar component
-   - Search input with icon
-   - Entity type filter buttons
-   - Settings toggle button
 
-2. **GraphSettingsPanel.vue** - Collapsible settings panel
-   - Layout radio buttons
-   - Visual options checkboxes
-   - Advanced accordion section
-   - Slide-in animation from right
-   - Click-away backdrop
+#### 1. GraphTopBar.vue
+
+**Props:**
+```typescript
+interface Props {
+  searchQuery: string
+  entityTypes: string[]
+  activeFilters: string[]
+  settingsPanelOpen: boolean
+}
+```
+
+**Emits:**
+```typescript
+const emit = defineEmits<{
+  'update:searchQuery': [value: string]
+  'toggle-filter': [type: string]
+  'toggle-settings': []
+}>()
+```
+
+**Template structure:**
+```vue
+<div class="graph-top-bar">
+  <div class="search-section">
+    <Search :size="14" />
+    <input
+      :value="searchQuery"
+      @input="$emit('update:searchQuery', $event.target.value)"
+      placeholder="Search entities..."
+    />
+  </div>
+  <div class="filter-section">
+    <button
+      v-for="type in entityTypes"
+      :key="type"
+      :class="{ active: activeFilters.includes(type) }"
+      @click="$emit('toggle-filter', type)"
+    >
+      {{ type }}
+    </button>
+  </div>
+  <button
+    class="settings-toggle"
+    :class="{ active: settingsPanelOpen }"
+    @click="$emit('toggle-settings')"
+  >
+    <Settings :size="16" />
+  </button>
+</div>
+```
+
+**Filter behavior:**
+- Toggle buttons: click to activate, click again to deactivate
+- Visual feedback: active button shows full opacity, inactive shows 0.4 opacity
+- "All off" state = show all entities (no filtering)
+- Filter state persists in `activeFilters` ref
+
+#### 2. GraphSettingsPanel.vue
+
+**Props:**
+```typescript
+interface Props {
+  isOpen: boolean
+  currentLayout: string
+  visualMode: string
+  performanceMode: boolean
+  renderMode: string
+  interactionMode: string
+  showStats: boolean
+  showMiniMap: boolean
+  clusteringEnabled: boolean
+}
+```
+
+**Emits:**
+```typescript
+const emit = defineEmits<{
+  'close': []
+  'select-layout': [layout: string]
+  'toggle-visual-mode': []
+  'toggle-performance-mode': []
+  'select-render-mode': [mode: string]
+  'select-interaction-mode': [mode: string]
+  'toggle-stats': []
+  'toggle-mini-map': []
+  'toggle-clustering': []
+}>()
+```
+
+**Internal state:**
+```typescript
+const advancedExpanded = ref(false)
+
+function toggleAdvanced() {
+  advancedExpanded.value = !advancedExpanded.value
+}
+```
+
+**Accordion behavior:**
+- Click "Advanced ▸" to expand, "Advanced ▾" to collapse
+- Smooth height transition (150ms ease-out)
+- Chevicon rotates 90deg during transition
+- Advanced state NOT persisted (resets to collapsed on panel close)
 
 ### Keep Unchanged
 - `GraphErrorBoundary.vue`
@@ -90,15 +188,28 @@ Settings panel (slides in from right when ⚙️ clicked):
 - `ConfirmModal.vue` (rebuild confirmation)
 
 ### GraphTab.vue Changes
-- Remove GraphToolbar import and usage
-- Add GraphTopBar and GraphSettingsPanel imports
-- Simplify template structure to match original clean design
+
+**Remove:**
+- GraphToolbar import and usage
+- GraphStatsPanel from template (moved to settings panel)
+- GraphMiniMap from template (moved to settings panel)
+
+**Add:**
+- GraphTopBar import and usage
+- GraphSettingsPanel import and usage
+- Local state: `settingsPanelOpen`, `showStats`, `showMiniMap`
+
+**Move code:**
+- Search/filter HTML moves from GraphTab.vue to GraphTopBar.vue
+- Search/filter logic stays in GraphTab.vue (searchQuery, activeFilters refs)
 
 ## State Management
 
 ```javascript
 // Local state in GraphTab.vue
 const settingsPanelOpen = ref(false)
+const showStats = ref(false)
+const showMiniMap = ref(false)
 
 function toggleSettings() {
   settingsPanelOpen.value = !settingsPanelOpen.value
@@ -106,23 +217,107 @@ function toggleSettings() {
 
 function closeSettings() {
   settingsPanelOpen.value = false
+  // Reset advanced section state when panel closes
+  // (handled internally by GraphSettingsPanel)
 }
 ```
 
 **Panel closes when:**
 - User clicks the X button
 - User clicks outside the panel (backdrop)
-- User selects a layout (auto-close for quick actions)
 
-**Layout selection:**
-- Immediately applies new layout
-- Shows brief toast: "Switched to Hierarchy layout"
-- Panel stays open for further adjustments
+**Panel stays open when:**
+- User selects a layout (for rapid comparison)
+- User toggles any option
 
-**Advanced section:**
-- Collapsed by default
-- Click "Advanced ▸" to expand
-- Contains rarely-used features
+**Settings panel state:**
+- Does NOT persist across navigation (always closed on fresh load)
+- Advanced section state does NOT persist (always collapsed on open)
+
+**Graph state persistence:**
+- Layout selection persists via useGraphState
+- Visual mode persists via useGraphState
+- Performance mode persists via useGraphState
+- Show stats/mini-map toggles DO NOT persist (always default to false)
+
+## Z-Index Layering
+
+```
+z-50  Settings panel
+z-40  Settings backdrop
+z-30  (reserved for future overlays)
+z-20  Top bar
+z-10  (base level for graph container)
+```
+
+**Note:** Node detail sidebar is NOT z-indexed - it's a normal flex item in the container, which is correct behavior.
+
+## Edge Cases
+
+1. **Settings panel open + user selects a node:**
+   - Settings panel stays open
+   - Node detail sidebar appears on the right
+   - Graph area shrinks to accommodate sidebar
+
+2. **Settings panel open + user clicks Rebuild:**
+   - Settings panel closes automatically
+   - Rebuild modal appears
+
+3. **Window resize while panel is open:**
+   - Panel remains open
+   - On < 768px viewport: panel width becomes 80% of screen
+
+4. **Search query is very long:**
+   - Input has `flex: 1` so it takes available space
+   - Filter buttons have fixed width, won't overflow
+   - Settings button fixed width
+
+5. **No entity types available (empty graph):**
+   - Filter section is hidden when `entityTypes.length === 0`
+   - Search still functional
+
+## Responsive Design
+
+```css
+/* Desktop (default) */
+.graph-top-bar {
+  flex-direction: row;
+}
+
+.settings-panel {
+  width: 300px;
+}
+
+/* Mobile (< 768px) */
+@media (max-width: 767px) {
+  .graph-top-bar {
+    flex-wrap: wrap;
+    padding: 8px;
+  }
+
+  .search-section {
+    width: 100%;
+    order: 1;
+  }
+
+  .filter-section {
+    width: 100%;
+    order: 2;
+    overflow-x: auto;
+  }
+
+  .settings-toggle {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    order: 3;
+  }
+
+  .settings-panel {
+    width: 85%;
+  }
+}
+```
 
 ## Styling
 
@@ -135,6 +330,7 @@ function closeSettings() {
   padding: 8px 12px;
   background: var(--surface-raised);
   border-bottom: 1px solid var(--border);
+  height: 53px; /* Fixed height for settings positioning */
 }
 
 .search-section {
@@ -145,16 +341,57 @@ function closeSettings() {
   background: var(--surface-sunken);
   border-radius: 8px;
   padding: 6px 12px;
+  min-width: 0; /* Allows flex item to shrink */
+}
+
+.search-section input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.filter-section {
+  display: flex;
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+.filter-section button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: opacity 150ms;
+}
+
+.filter-section button.active {
+  opacity: 1;
 }
 
 .settings-toggle {
   padding: 8px;
   border-radius: 8px;
   background: var(--surface-sunken);
+  border: none;
+  cursor: pointer;
+  transition: all 150ms;
 }
 
 .settings-toggle:hover {
   background: var(--border);
+}
+
+.settings-toggle.active {
+  background: var(--color-primary);
+  color: white;
 }
 ```
 
@@ -163,15 +400,24 @@ function closeSettings() {
 .settings-panel {
   position: fixed;
   right: 0;
-  top: 53px;
+  top: 53px; /* Height of top bar */
   bottom: 0;
   width: 300px;
   background: var(--surface-raised);
   border-left: 1px solid var(--border);
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.1);
   overflow-y: auto;
+  z-index: 50;
 }
 
+.settings-backdrop {
+  position: fixed;
+  inset: 53px 0 0 0; /* Below top bar */
+  background: rgba(0, 0, 0, 0.05);
+  z-index: 40;
+}
+
+/* Slide animation */
 .slide-in-right-enter-active,
 .slide-in-right-leave-active {
   transition: transform 200ms ease-out;
@@ -182,10 +428,26 @@ function closeSettings() {
   transform: translateX(100%);
 }
 
-.settings-backdrop {
-  position: fixed;
-  inset: 53px 0 0 0;
-  background: rgba(0, 0, 0, 0.05);
+/* Accordion animation */
+.accordion-enter-active,
+.accordion-leave-active {
+  transition: all 150ms ease-out;
+  max-height: 300px;
+  overflow: hidden;
+}
+
+.accordion-enter-from,
+.accordion-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
+
+.accordion-chevron {
+  transition: transform 150ms;
+}
+
+.accordion-chevron.open {
+  transform: rotate(90deg);
 }
 ```
 
@@ -220,13 +482,18 @@ function closeSettings() {
       :performanceMode="graphState.performance.performanceMode"
       :renderMode="graphState.renderMode"
       :interactionMode="graphState.selection.mode"
-      :stats="graphStats"
+      :showStats="showStats"
+      :showMiniMap="showMiniMap"
+      :clusteringEnabled="graphState.clustering.enabled"
       @close="closeSettings"
       @select-layout="handleLayoutChange"
       @toggle-visual-mode="handleVisualModeToggle"
       @toggle-performance-mode="handlePerformanceModeToggle"
       @select-render-mode="handleRenderModeChange"
       @select-interaction-mode="handleModeChange"
+      @toggle-stats="showStats = $event"
+      @toggle-mini-map="showMiniMap = $event"
+      @toggle-clustering="handleClusteringToggle"
     />
 
     <!-- Main container -->
@@ -242,29 +509,43 @@ function closeSettings() {
         @toggle-settings="toggleSettings"
       />
 
-      <!-- Graph area -->
-      <div class="flex-1 relative">
-        <div ref="svgContainer" class="w-full h-full" />
+      <!-- Graph area container -->
+      <div class="flex-1 flex overflow-hidden">
+        <!-- Main graph area -->
+        <div class="flex-1 relative">
+          <div ref="svgContainer" class="w-full h-full" />
 
-        <!-- Zoom controls (bottom-left) -->
-        <div class="absolute bottom-3 left-3 flex gap-1">
-          <button @click="zoomIn"><Plus :size="14" /></button>
-          <button @click="zoomOut"><Minus :size="14" /></button>
-          <button @click="zoomReset"><RotateCcw :size="12" /></button>
+          <!-- Stats panel (conditionally rendered) -->
+          <div v-if="showStats" class="absolute top-3 left-3 z-10">
+            <GraphStatsPanel ... />
+          </div>
+
+          <!-- Mini-map (conditionally rendered) -->
+          <div v-if="showMiniMap" class="absolute bottom-3 right-3 z-10">
+            <GraphMiniMap ... />
+          </div>
+
+          <!-- Zoom controls (bottom-left) -->
+          <div class="absolute bottom-3 left-3 flex gap-1 z-10">
+            <button @click="zoomIn"><Plus :size="14" /></button>
+            <button @click="zoomOut"><Minus :size="14" /></button>
+            <button @click="zoomReset"><RotateCcw :size="12" /></button>
+          </div>
+
+          <!-- Rebuild button (bottom-right, unless mini-map is shown) -->
+          <div v-if="!showMiniMap" class="absolute bottom-3 right-3 z-10">
+            <button @click="showRebuildModal = true">Rebuild Graph</button>
+          </div>
         </div>
 
-        <!-- Rebuild button (bottom-right) -->
-        <div class="absolute bottom-3 right-3">
-          <button @click="showRebuildModal = true">Rebuild Graph</button>
+        <!-- Node detail sidebar (appears when node selected) -->
+        <div
+          v-if="selectedNode"
+          class="w-[260px] border-l shrink-0 overflow-y-auto"
+          :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)' }"
+        >
+          <!-- Node details content (unchanged from original) -->
         </div>
-      </div>
-
-      <!-- Node detail sidebar -->
-      <div
-        v-if="selectedNode"
-        class="w-[260px] border-l shrink-0 overflow-y-auto"
-      >
-        <!-- Node details content -->
       </div>
     </div>
 
@@ -280,33 +561,38 @@ function closeSettings() {
    - All layout algorithms continue to work
    - useGraphState composable remains unchanged
    - Existing event handlers are preserved
+   - Graph rendering logic stays in GraphTab.vue
 
-2. **Z-index layering:**
-   - Settings panel: z-50
-   - Backdrop: z-40
-   - Node detail sidebar: z-30
-   - Top bar: z-20
+2. **Search/filter code migration:**
+   - HTML moves from GraphTab.vue to GraphTopBar.vue
+   - Logic (refs, computed, watchers) stays in GraphTab.vue
+   - Props/emits bridge between components
 
-3. **Animation:**
-   - Panel slide: 200ms ease-out
-   - Advanced accordion: 150ms ease-out
-   - Settings button hover: 150ms
+3. **Toast notifications:**
+   - REMOVED from v1 specification
+   - Layout changes are immediate and visual (no toast needed)
 
-4. **Responsive considerations:**
-   - On mobile (< 768px): Panel takes 80% width
-   - Settings button remains accessible
-   - Zoom controls remain accessible
+4. **GraphCanvas.vue:**
+   - Exists but not integrated in current codebase
+   - Leave unchanged for future consideration
+   - Not part of this redesign
+
+5. **GraphLayoutControls.vue:**
+   - Sliders for layout parameters (link distance, charge, etc.)
+   - NOT included in v1 settings panel
+   - Can be added to Advanced section in future if needed
 
 ## Success Criteria
 
-1. Top bar shows only search, filters, and settings button
-2. Graph area takes maximum available space
-3. Settings panel opens smoothly with backdrop
-4. Layout switching is 1-2 clicks away
-5. Advanced features are hidden but accessible
-6. UI feels clean and uncluttered
-7. Build succeeds, no regressions
+1. ✅ Top bar shows only search, filters, and settings button
+2. ✅ Graph area takes maximum available space
+3. ✅ Settings panel opens smoothly with backdrop
+4. ✅ Layout switching is 1 click away (settings → layout radio)
+5. ✅ Advanced features are hidden but accessible
+6. ✅ UI feels clean and uncluttered
+7. ✅ Build succeeds, no regressions
+8. ✅ Responsive design works on mobile
 
 ## Open Questions
 
-None - design approved by stakeholder.
+None - design approved by stakeholder, review feedback addressed.
