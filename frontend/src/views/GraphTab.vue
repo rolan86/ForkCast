@@ -165,6 +165,17 @@ function renderGraph() {
   const width = container.clientWidth
   const height = container.clientHeight || 500
 
+  // DEBUG: Log container dimensions
+  console.log('[GraphTab] renderGraph - container dimensions:', {
+    clientWidth: container.clientWidth,
+    clientHeight: container.clientHeight,
+    offsetWidth: container.offsetWidth,
+    offsetHeight: container.offsetHeight,
+    computedWidth: width,
+    computedHeight: height,
+    container: container
+  })
+
   // Auto-select render mode based on node count
   const nodeCount = graphData.value.nodes.length
   autoSelectRenderMode(nodeCount)
@@ -220,6 +231,9 @@ function setupLassoEvents() {
  * Render graph using hybrid renderer (canvas edges + SVG nodes)
  */
 function renderGraphHybrid(container, width, height) {
+  // DEBUG: Log received dimensions
+  console.log('[GraphTab] renderGraphHybrid - dimensions:', { width, height })
+
   d3.select(container).selectAll('*').remove()
 
   const nodes = graphData.value.nodes.map(n => ({ ...n }))
