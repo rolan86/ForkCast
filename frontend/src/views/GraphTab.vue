@@ -16,7 +16,6 @@ import EmptyState from '@/components/EmptyState.vue'
 import ProgressPanel from '@/components/ProgressPanel.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import GraphErrorBoundary from '@/components/graph/GraphErrorBoundary.vue'
-import GraphToolbar from '@/components/graph/GraphToolbar.vue'
 import GraphTopBar from '@/components/graph/GraphTopBar.vue'
 import GraphSettingsPanel from '@/components/graph/GraphSettingsPanel.vue'
 import GraphStatsPanel from '@/components/graph/GraphStatsPanel.vue'
@@ -1074,140 +1073,179 @@ watch(() => graphState.value.selection.mode, (newMode, oldMode) => {
     />
   </div>
 
-  <!-- Ready state: interactive graph -->
-  <GraphErrorBoundary
-    v-else
-    @reset="handleGraphReset"
-  >
-    <div class="h-full flex relative">
-      <div class="flex-1 relative">
-        <!-- Toolbar (absolute positioned) -->
-        <GraphToolbar
-          class="absolute top-3 left-3 right-3 z-20"
-          :currentLayout="graphState.layout"
-          :currentMode="graphState.selection.mode"
-          :clusteringEnabled="graphState.clustering.enabled"
-          :canExpandClusters="true"
-          :visualMode="graphState.visualMode"
-          :renderMode="graphState.renderMode"
-          :performanceMode="graphState.performance.performanceMode"
-          @select-layout="handleLayoutChange"
-          @select-mode="handleModeChange"
-          @toggle-clustering="handleClusteringToggle"
-          @expand-all="handleExpandAllClusters"
-          @collapse-all="handleCollapseAllClusters"
-          @reset-view="zoomReset"
-          @fit-to-screen="fitToScreen"
-          @toggle-visual-mode="handleVisualModeToggle"
-          @select-render-mode="handleRenderModeChange"
-          @toggle-performance-mode="handlePerformanceModeToggle"
-        />
-
-        <!-- Stats panel (top-left, positioned below toolbar) -->
-        <div class="absolute top-16 left-3 z-10">
-          <GraphStatsPanel
-            v-if="graphData"
-            :nodeCount="graphStats.nodeCount"
-            :edgeCount="graphStats.edgeCount"
-            :clusterCount="graphStats.clusterCount"
-            :selectedCount="graphStats.selectedCount"
-            :layout="graphStats.layout"
-          />
-        </div>
-
-        <!-- Search and filter controls -->
-        <div class="absolute top-3 left-3 right-3 z-10 flex gap-2">
-          <div
-            class="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border"
-            :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }"
-          >
-            <Search :size="14" :style="{ color: 'var(--text-tertiary)' }" />
-            <input
-              v-model="searchQuery"
-              placeholder="Search entities..."
-              class="flex-1 text-sm bg-transparent outline-none"
-              :style="{ color: 'var(--text-primary)' }"
-            />
-          </div>
-          <div class="flex gap-1 items-center">
-            <button
-              v-for="type in entityTypes"
-              :key="type"
-              class="px-2.5 py-1.5 rounded-md text-xs font-medium text-white transition-opacity"
-              :style="{ backgroundColor: getNodeColor(type), opacity: activeFilters.length && !activeFilters.includes(type) ? 0.4 : 1 }"
-              @click="toggleFilter(type)"
-            >{{ type }}</button>
-          </div>
-        </div>
-
-        <!-- SVG container (fills the space) -->
-        <div ref="svgContainer" class="w-full h-full min-h-[500px]" />
-
-        <!-- Zoom controls (bottom-left) -->
-        <div class="absolute bottom-3 left-3 flex gap-1">
-          <button class="w-8 h-8 rounded-md border flex items-center justify-center" :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }" @click="zoomIn"><Plus :size="14" /></button>
-          <button class="w-8 h-8 rounded-md border flex items-center justify-center" :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }" @click="zoomOut"><Minus :size="14" /></button>
-          <button class="w-8 h-8 rounded-md border flex items-center justify-center" :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }" @click="zoomReset"><RotateCcw :size="12" /></button>
-        </div>
-
-        <!-- Mini-map and rebuild button (bottom-right) -->
-        <div class="absolute bottom-3 right-3">
-          <!-- Mini-map -->
-          <GraphMiniMap
-            v-if="graphData"
-            class="mb-2"
-            :nodes="graphData.nodes || []"
-            :viewport="currentViewport"
-            :mainViewBounds="mainViewBounds"
-            @navigate-to="handleMiniMapNavigation"
-          />
-          <button
-            class="px-3 py-1.5 rounded-md border text-xs"
-            :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', color: 'var(--text-secondary)', boxShadow: 'var(--shadow-sm)' }"
-            @click="showRebuildModal = true"
-          >Rebuild Graph</button>
-        </div>
-      </div>
-
-      <!-- Sidebar -->
+  <!-- Ready state -->
+  <GraphErrorBoundary v-else @reset="handleGraphReset">
+    <!-- Settings backdrop -->
+    <Transition name="slide-in-right">
       <div
-        v-if="selectedNode"
-        class="w-[260px] border-l shrink-0 overflow-y-auto"
-        :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', transition: 'width var(--duration-slow) var(--ease-out)' }"
-      >
-        <div class="p-4 border-b" :style="{ borderColor: 'var(--border)' }">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <div class="w-2.5 h-2.5 rounded-full" :style="{ backgroundColor: getNodeColor(selectedNode.type) }" />
-              <span class="text-xs uppercase tracking-wider" :style="{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }">{{ selectedNode.type }}</span>
+        v-if="settingsPanelOpen"
+        class="settings-backdrop"
+        @click="closeSettings"
+      />
+    </Transition>
+
+    <!-- Settings panel -->
+    <GraphSettingsPanel
+      :isOpen="settingsPanelOpen"
+      :currentLayout="graphState.layout"
+      :visualMode="graphState.visualMode"
+      :performanceMode="graphState.performance.performanceMode"
+      :renderMode="graphState.renderMode"
+      :interactionMode="graphState.selection.mode"
+      :showStats="showStats"
+      :showMiniMap="showMiniMap"
+      :clusteringEnabled="graphState.clustering.enabled"
+      :isLoading="isLayoutLoading"
+      @close="closeSettings"
+      @select-layout="handleLayoutChangeFromSettings"
+      @toggle-visual-mode="handleVisualModeToggle"
+      @toggle-performance-mode="handlePerformanceModeToggle"
+      @select-render-mode="handleRenderModeChange"
+      @select-interaction-mode="handleModeChange"
+      @toggle-stats="handleStatsToggle"
+      @toggle-mini-map="handleMiniMapToggle"
+      @toggle-clustering="handleClusteringToggle"
+    />
+
+    <!-- Main container -->
+    <div class="h-full flex flex-col">
+      <!-- Top bar -->
+      <GraphTopBar
+        :searchQuery="searchQuery"
+        :entityTypes="entityTypes"
+        :activeFilters="activeFilters"
+        :settingsPanelOpen="settingsPanelOpen"
+        @update:searchQuery="searchQuery = $event"
+        @toggle-filter="toggleFilter"
+        @toggle-settings="toggleSettings"
+      />
+
+      <!-- Graph area container -->
+      <div class="flex-1 flex overflow-hidden">
+        <!-- Main graph area -->
+        <div class="flex-1 relative">
+          <div ref="svgContainer" class="w-full h-full" />
+
+          <!-- Stats panel (conditionally rendered in graph area) -->
+          <Transition name="fade-in">
+            <div v-if="showStats" class="absolute top-3 left-3 z-10">
+              <GraphStatsPanel
+                v-if="graphData"
+                :nodeCount="graphStats.nodeCount"
+                :edgeCount="graphStats.edgeCount"
+                :clusterCount="graphStats.clusterCount"
+                :selectedCount="graphStats.selectedCount"
+                :layout="graphStats.layout"
+              />
             </div>
-            <button class="opacity-50 hover:opacity-100 text-xs" @click="closeDetail">✕</button>
+          </Transition>
+
+          <!-- Mini-map (conditionally rendered, replaces rebuild button when shown) -->
+          <Transition name="fade-in">
+            <div v-if="showMiniMap" class="absolute bottom-3 right-3 z-10">
+              <GraphMiniMap
+                v-if="graphData"
+                :nodes="graphData.nodes || []"
+                :viewport="currentViewport"
+                :mainViewBounds="mainViewBounds"
+                @navigate-to="handleMiniMapNavigation"
+              />
+            </div>
+          </Transition>
+
+          <!-- Zoom controls (bottom-left) -->
+          <div class="absolute bottom-3 left-3 flex gap-1 z-10">
+            <button
+              class="w-8 h-8 rounded-md border flex items-center justify-center"
+              :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }"
+              @click="zoomIn"
+            >
+              <Plus :size="14" />
+            </button>
+            <button
+              class="w-8 h-8 rounded-md border flex items-center justify-center"
+              :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }"
+              @click="zoomOut"
+            >
+              <Minus :size="14" />
+            </button>
+            <button
+              class="w-8 h-8 rounded-md border flex items-center justify-center"
+              :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }"
+              @click="zoomReset"
+            >
+              <RotateCcw :size="12" />
+            </button>
           </div>
-          <h3 class="text-base font-semibold mt-2" :style="{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }">{{ selectedNode.id }}</h3>
-        </div>
-        <div class="p-4">
-          <div v-if="selectedNode.description" class="mb-4">
-            <p class="text-xs uppercase tracking-wider mb-1" :style="{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }">Description</p>
-            <p class="text-sm leading-relaxed" :style="{ color: 'var(--text-secondary)' }">{{ selectedNode.description }}</p>
-          </div>
-          <div v-if="selectedNode.connections?.length">
-            <p class="text-xs uppercase tracking-wider mb-2" :style="{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }">Connected To</p>
-            <div class="space-y-1.5">
-              <div
-                v-for="conn in selectedNode.connections"
-                :key="conn.node"
-                class="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer"
-                :style="{ backgroundColor: 'var(--surface-sunken)' }"
+
+          <!-- Rebuild button (bottom-right, hidden when mini-map shown) -->
+          <Transition name="fade-in">
+            <div v-if="!showMiniMap" class="absolute bottom-3 right-3 z-10">
+              <button
+                class="px-3 py-1.5 rounded-md border text-xs"
+                :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', color: 'var(--text-secondary)', boxShadow: 'var(--shadow-sm)' }"
+                @click="showRebuildModal = true"
               >
-                <div class="w-2 h-2 rounded-full" :style="{ backgroundColor: getNodeColor(conn.type) }" />
-                <span class="text-sm flex-1" :style="{ color: 'var(--text-primary)' }">{{ conn.node }}</span>
-                <span class="text-xs" :style="{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }">{{ conn.label }}</span>
+                Rebuild Graph
+              </button>
+            </div>
+          </Transition>
+        </div>
+
+        <!-- Node detail sidebar (appears when node selected) -->
+        <Transition name="slide-in-left">
+          <div
+            v-if="selectedNode"
+            class="w-[260px] border-l shrink-0 overflow-y-auto"
+            :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', transition: 'width var(--duration-slow) var(--ease-out)' }"
+          >
+            <div class="p-4 border-b" :style="{ borderColor: 'var(--border)' }">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="w-2.5 h-2.5 rounded-full" :style="{ backgroundColor: getNodeColor(selectedNode.type) }" />
+                  <span class="text-xs uppercase tracking-wider" :style="{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }">{{ selectedNode.type }}</span>
+                </div>
+                <button class="opacity-50 hover:opacity-100 text-xs" @click="selectedNode = null">✕</button>
+              </div>
+              <h3 class="text-base font-semibold mt-2" :style="{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }">{{ selectedNode.id }}</h3>
+            </div>
+            <div class="p-4">
+              <div v-if="selectedNode.description" class="mb-4">
+                <p class="text-xs uppercase tracking-wider mb-1" :style="{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }">Description</p>
+                <p class="text-sm leading-relaxed" :style="{ color: 'var(--text-secondary)' }">{{ selectedNode.description }}</p>
+              </div>
+              <div v-if="selectedNode.connections?.length">
+                <p class="text-xs uppercase tracking-wider mb-2" :style="{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }">Connected To</p>
+                <div class="space-y-1.5">
+                  <div
+                    v-for="conn in selectedNode.connections"
+                    :key="conn.node"
+                    class="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer"
+                    :style="{ backgroundColor: 'var(--surface-sunken)' }"
+                    @click="selectNode({ id: conn.node, type: conn.type })"
+                  >
+                    <div class="w-2 h-2 rounded-full" :style="{ backgroundColor: getNodeColor(conn.type) }" />
+                    <span class="text-sm flex-1" :style="{ color: 'var(--text-primary)' }">{{ conn.node }}</span>
+                    <span class="text-xs" :style="{ color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }">{{ conn.label }}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </Transition>
       </div>
     </div>
+
+    <!-- Rebuild confirmation modal -->
+    <ConfirmModal
+      v-if="showRebuildModal"
+      title="Rebuild Knowledge Graph?"
+      message="This will build a new knowledge graph. Existing simulations keep their original graph data. New simulations will use the rebuilt graph."
+      confirmLabel="Rebuild"
+      variant="warning"
+      @confirm="confirmRebuild"
+      @cancel="showRebuildModal = false"
+    />
   </GraphErrorBoundary>
 
   <ConfirmModal
@@ -1220,3 +1258,54 @@ watch(() => graphState.value.selection.mode, (newMode, oldMode) => {
       @cancel="showRebuildModal = false"
     />
 </template>
+
+<style scoped>
+/* Settings backdrop */
+.settings-backdrop {
+  position: fixed;
+  inset: 53px 0 0 0;
+  background: rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(2px);
+  z-index: 40;
+}
+
+/* Backdrop fade animation */
+.slide-in-right-enter-active .settings-backdrop,
+.slide-in-right-leave-active .settings-backdrop {
+  transition: opacity 200ms;
+}
+
+.slide-in-right-enter-from .settings-backdrop,
+.slide-in-right-leave-to .settings-backdrop {
+  opacity: 0;
+}
+
+/* Fade in animation for conditional elements */
+.fade-in-enter-active,
+.fade-in-leave-active {
+  transition: opacity 200ms, transform 200ms;
+}
+
+.fade-in-enter-from,
+.fade-in-leave-to {
+  opacity: 0;
+  transform: scale(0.95);
+}
+
+/* Slide in from left for sidebar */
+.slide-in-left-enter-active {
+  transition: transform 250ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.slide-in-left-leave-active {
+  transition: transform 200ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+.slide-in-left-enter-from {
+  transform: translateX(100%);
+}
+
+.slide-in-left-leave-to {
+  transform: translateX(100%);
+}
+</style>
