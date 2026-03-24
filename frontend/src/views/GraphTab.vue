@@ -29,7 +29,7 @@ const store = useProjectStore()
 const projectId = computed(() => route.params.id)
 
 // Graph state composable for UI state management
-const { graphState, updateLayout, updateSelection, updateView, updateClustering, updateVisualMode, autoSelectRenderMode } = useGraphState()
+const { graphState, updateLayout, updateSelection, updateView, updateClustering, updateVisualMode, updateRenderMode, updatePerformanceMode, autoSelectRenderMode } = useGraphState()
 
 // State: 'empty' | 'building' | 'ready'
 const viewState = ref('empty')
@@ -916,7 +916,7 @@ function closeSettings() {
 /**
  * Handle layout change from settings panel
  */
-async function handleLayoutChange(newLayout) {
+async function handleLayoutChangeFromSettings(newLayout) {
   isLayoutLoading.value = true
   try {
     await updateLayout(newLayout)
