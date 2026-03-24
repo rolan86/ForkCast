@@ -1138,7 +1138,7 @@ watch(() => graphState.value.selection.mode, (newMode, oldMode) => {
       <div class="flex-1 flex overflow-hidden">
         <!-- Main graph area -->
         <div class="flex-1 relative">
-          <div ref="svgContainer" class="w-full h-full" />
+          <div ref="svgContainer" class="w-full h-full min-h-[500px]" />
 
           <!-- Stats panel (conditionally rendered in graph area) -->
           <Transition name="fade-in">
