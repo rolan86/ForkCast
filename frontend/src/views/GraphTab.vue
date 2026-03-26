@@ -367,6 +367,30 @@ watch(() => graphState.selection.mode, (newMode, oldMode) => {
   }
   if (newMode !== oldMode) renderer.clearHighlights()
 })
+
+function handleSelectionAction(actionId) {
+  switch (actionId) {
+    case 'deselect':
+      updateSelection({ nodes: [] })
+      renderer.clearHighlights()
+      break
+    case 'selectAll':
+      if (graphData.value) {
+        updateSelection({ nodes: graphData.value.nodes.map(n => n.id).slice(0, 50) })
+      }
+      break
+    case 'invert':
+      if (graphData.value) {
+        const selected = new Set(graphState.selection.nodes)
+        const inverted = graphData.value.nodes
+          .filter(n => !selected.has(n.id))
+          .map(n => n.id)
+          .slice(0, 50)
+        updateSelection({ nodes: inverted })
+      }
+      break
+  }
+}
 </script>
 
 <template>
@@ -398,38 +422,6 @@ watch(() => graphState.selection.mode, (newMode, oldMode) => {
 
   <!-- Ready state -->
   <GraphErrorBoundary v-else @reset="handleGraphReset">
-    <!-- Settings backdrop -->
-    <Transition name="slide-in-right">
-      <div
-        v-if="settingsPanelOpen"
-        class="settings-backdrop"
-        @click="closeSettings"
-      />
-    </Transition>
-
-    <!-- Settings panel -->
-    <GraphSettingsPanel
-      :isOpen="settingsPanelOpen"
-      :currentLayout="graphState.layout"
-      :visualMode="graphState.visualMode"
-      :performanceMode="graphState.performance.performanceMode"
-      :renderMode="graphState.renderMode"
-      :interactionMode="graphState.selection.mode"
-      :showStats="showStats"
-      :showMiniMap="showMiniMap"
-      :clusteringEnabled="graphState.clustering.enabled"
-      :isLoading="isLayoutLoading"
-      @close="closeSettings"
-      @select-layout="handleLayoutChangeFromSettings"
-      @toggle-visual-mode="handleVisualModeToggle"
-      @toggle-performance-mode="handlePerformanceModeToggle"
-      @select-render-mode="handleRenderModeChange"
-      @select-interaction-mode="handleModeChange"
-      @toggle-stats="handleStatsToggle"
-      @toggle-mini-map="handleMiniMapToggle"
-      @toggle-clustering="handleClusteringToggle"
-    />
-
     <!-- Main container -->
     <div class="h-full flex flex-col">
       <!-- Top bar -->
@@ -438,16 +430,55 @@ watch(() => graphState.selection.mode, (newMode, oldMode) => {
         :entityTypes="entityTypes"
         :activeFilters="activeFilters"
         :settingsPanelOpen="settingsPanelOpen"
+        :currentLayout="graphState.layout"
+        :interactionInstruction="interactionMeta.instruction"
         @update:searchQuery="searchQuery = $event"
         @toggle-filter="toggleFilter"
         @toggle-settings="toggleSettings"
+        @select-layout="handleLayoutChange"
       />
 
       <!-- Graph area container -->
-      <div class="flex-1 flex overflow-hidden">
+      <div class="flex-1 flex overflow-hidden relative">
+        <!-- Settings backdrop (inside relative container) -->
+        <Transition name="fade-backdrop">
+          <div
+            v-if="settingsPanelOpen"
+            class="settings-backdrop"
+            @click="closeSettings"
+          />
+        </Transition>
+
+        <!-- Settings panel -->
+        <GraphSettingsPanel
+          :isOpen="settingsPanelOpen"
+          :currentLayout="graphState.layout"
+          :visualMode="graphState.visualMode"
+          :performanceMode="graphState.performance.performanceMode"
+          :renderMode="graphState.renderMode"
+          :interactionMode="graphState.selection.mode"
+          :showStats="showStats"
+          :showMiniMap="showMiniMap"
+          :clusteringEnabled="graphState.clustering.enabled"
+          :isLoading="isLayoutLoading"
+          @close="closeSettings"
+          @select-layout="handleLayoutChange"
+          @toggle-visual-mode="handleVisualModeToggle"
+          @toggle-performance-mode="handlePerformanceModeToggle"
+          @select-render-mode="handleRenderModeChange"
+          @select-interaction-mode="handleModeChange"
+          @toggle-stats="handleStatsToggle"
+          @toggle-mini-map="handleMiniMapToggle"
+          @toggle-clustering="handleClusteringToggle"
+        />
+
         <!-- Main graph area -->
         <div class="flex-1 relative">
-          <div ref="svgContainer" class="w-full h-full min-h-[500px]" />
+          <div
+            ref="svgContainer"
+            class="w-full h-full min-h-[500px]"
+            :style="{ cursor: interactionMeta.cursor }"
+          />
 
           <!-- Stats panel (conditionally rendered in graph area) -->
           <Transition name="fade-in">
@@ -463,15 +494,29 @@ watch(() => graphState.selection.mode, (newMode, oldMode) => {
             </div>
           </Transition>
 
-          <!-- Mini-map (conditionally rendered, replaces rebuild button when shown) -->
+          <!-- Selection actions floating toolbar -->
+          <Transition name="fade-in">
+            <div
+              v-if="graphState.selection.nodes.length > 1"
+              class="absolute bottom-14 left-1/2 -translate-x-1/2 z-10"
+            >
+              <GraphSelectionActions
+                :selectedNodes="graphState.selection.nodes"
+                :totalNodes="graphData?.nodes.length || 0"
+                @action="handleSelectionAction"
+              />
+            </div>
+          </Transition>
+
+          <!-- Mini-map (conditionally rendered) -->
           <Transition name="fade-in">
             <div v-if="showMiniMap" class="absolute bottom-3 right-3 z-10">
               <GraphMiniMap
                 v-if="graphData"
                 :nodes="graphData.nodes || []"
-                :viewport="currentViewport"
+                :viewport="renderer.viewport.value"
                 :mainViewBounds="mainViewBounds"
-                @navigate-to="handleMiniMapNavigation"
+                @navigate-to="renderer.panTo"
               />
             </div>
           </Transition>
@@ -481,42 +526,40 @@ watch(() => graphState.selection.mode, (newMode, oldMode) => {
             <button
               class="w-8 h-8 rounded-md border flex items-center justify-center"
               :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }"
-              @click="zoomIn"
+              @click="renderer.zoomIn()"
             >
               <Plus :size="14" />
             </button>
             <button
               class="w-8 h-8 rounded-md border flex items-center justify-center"
               :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }"
-              @click="zoomOut"
+              @click="renderer.zoomOut()"
             >
               <Minus :size="14" />
             </button>
             <button
               class="w-8 h-8 rounded-md border flex items-center justify-center"
               :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }"
-              @click="zoomReset"
+              @click="renderer.zoomReset()"
             >
               <RotateCcw :size="12" />
             </button>
           </div>
 
-          <!-- Rebuild button (bottom-right, hidden when mini-map shown) -->
-          <Transition name="fade-in">
-            <div v-if="!showMiniMap" class="absolute bottom-3 right-3 z-10">
-              <button
-                class="px-3 py-1.5 rounded-md border text-xs"
-                :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', color: 'var(--text-secondary)', boxShadow: 'var(--shadow-sm)' }"
-                @click="showRebuildModal = true"
-              >
-                Rebuild Graph
-              </button>
-            </div>
-          </Transition>
+          <!-- Rebuild button (always visible, adjusts position when mini-map shown) -->
+          <div :class="['absolute right-3 z-10', showMiniMap ? 'bottom-[170px]' : 'bottom-3']">
+            <button
+              class="px-3 py-1.5 rounded-md border text-xs"
+              :style="{ backgroundColor: 'var(--surface-raised)', borderColor: 'var(--border)', color: 'var(--text-secondary)', boxShadow: 'var(--shadow-sm)' }"
+              @click="showRebuildModal = true"
+            >
+              Rebuild Graph
+            </button>
+          </div>
         </div>
 
         <!-- Node detail sidebar (appears when node selected) -->
-        <Transition name="slide-in-left">
+        <Transition name="slide-in-right-sidebar">
           <div
             v-if="selectedNode"
             class="w-[260px] border-l shrink-0 overflow-y-auto"
@@ -573,23 +616,21 @@ watch(() => graphState.selection.mode, (newMode, oldMode) => {
 </template>
 
 <style scoped>
-/* Settings backdrop */
+/* Settings backdrop (position: absolute within graph container) */
 .settings-backdrop {
-  position: fixed;
-  inset: 53px 0 0 0;
+  position: absolute;
+  inset: 0;
   background: rgba(0, 0, 0, 0.2);
   backdrop-filter: blur(2px);
   z-index: 40;
 }
 
-/* Backdrop fade animation */
-.slide-in-right-enter-active .settings-backdrop,
-.slide-in-right-leave-active .settings-backdrop {
+.fade-backdrop-enter-active,
+.fade-backdrop-leave-active {
   transition: opacity 200ms;
 }
-
-.slide-in-right-enter-from .settings-backdrop,
-.slide-in-right-leave-to .settings-backdrop {
+.fade-backdrop-enter-from,
+.fade-backdrop-leave-to {
   opacity: 0;
 }
 
@@ -598,27 +639,23 @@ watch(() => graphState.selection.mode, (newMode, oldMode) => {
 .fade-in-leave-active {
   transition: opacity 200ms, transform 200ms;
 }
-
 .fade-in-enter-from,
 .fade-in-leave-to {
   opacity: 0;
   transform: scale(0.95);
 }
 
-/* Slide in from left for sidebar */
-.slide-in-left-enter-active {
+/* Slide in from right for node detail sidebar */
+.slide-in-right-sidebar-enter-active {
   transition: transform 250ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-
-.slide-in-left-leave-active {
+.slide-in-right-sidebar-leave-active {
   transition: transform 200ms cubic-bezier(0.4, 0, 1, 1);
 }
-
-.slide-in-left-enter-from {
-  transform: translateX(-100%);
+.slide-in-right-sidebar-enter-from {
+  transform: translateX(100%);
 }
-
-.slide-in-left-leave-to {
-  transform: translateX(-100%);
+.slide-in-right-sidebar-leave-to {
+  transform: translateX(100%);
 }
 </style>
