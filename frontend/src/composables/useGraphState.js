@@ -150,7 +150,7 @@ export function useGraphState() {
    * Computed property for accessing graph state
    * Read-only access to prevent direct mutation
    */
-  const graphState = computed(() => state)
+  const graphState = readonly(state)
 
   const interactionMeta = computed(() =>
     INTERACTION_META[state.selection.mode] || INTERACTION_META.select
@@ -210,11 +210,6 @@ export function useGraphState() {
       state.renderMode = renderMode
       state._userSelectedRenderMode = isUserSelection
     }
-  }
-
-  /** @deprecated — will be removed in Task 5. Auto-selection moves to useGraphRenderer. */
-  function autoSelectRenderMode(/* nodeCount */) {
-    // No-op stub — auto-selection now lives in useGraphRenderer
   }
 
   /**
@@ -358,7 +353,7 @@ export function useGraphState() {
   loadPersistedPreferences()
 
   return {
-    // State access (computed)
+    // State access (readonly)
     graphState,
     interactionMeta,
 
@@ -367,8 +362,6 @@ export function useGraphState() {
     updateLayoutParam,
     updateVisualMode,
     updateRenderMode,
-    autoSelectRenderMode,
-
     // Clustering mutators
     updateClustering,
     toggleCluster,

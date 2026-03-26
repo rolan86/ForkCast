@@ -4,13 +4,8 @@ import { useRoute } from 'vue-router'
 import { useProjectStore } from '@/stores/project.js'
 import { buildGraph, getGraphData, streamGraphBuild } from '@/api/graphs.js'
 import { useGraphState } from '@/composables/useGraphState.js'
-import { NEON_COLORS, LAYOUT_TYPES, RENDER_MODES, PERFORMANCE_THRESHOLDS, VISUAL_MODES, INTERACTION_MODES } from '@/constants/graph.js'
-import { renderHybrid } from '@/utils/graph/rendering/hybridRenderer.js'
-import { runForceLayout, runForceLayoutWithEdgeStrength } from '@/utils/graph/layouts/force.js'
-import { runHierarchicalLayout } from '@/utils/graph/layouts/hierarchical.js'
-import { runCircularLayout } from '@/utils/graph/layouts/circular.js'
-import { runClusteredLayout } from '@/utils/graph/layouts/clustered.js'
-import { animateLayoutTransition } from '@/utils/graph/rendering/transition.js'
+import { useGraphRenderer } from '@/composables/useGraphRenderer.js'
+import { NEON_COLORS, LAYOUT_TYPES, VISUAL_MODES, INTERACTION_MODES } from '@/constants/graph.js'
 import { findShortestPath, findNeighbors, findNodesInLasso } from '@/utils/graph/interactions/modes.js'
 import EmptyState from '@/components/EmptyState.vue'
 import ProgressPanel from '@/components/ProgressPanel.vue'
@@ -20,15 +15,30 @@ import GraphTopBar from '@/components/graph/GraphTopBar.vue'
 import GraphSettingsPanel from '@/components/graph/GraphSettingsPanel.vue'
 import GraphStatsPanel from '@/components/graph/GraphStatsPanel.vue'
 import GraphMiniMap from '@/components/graph/GraphMiniMap.vue'
-import { Search, Plus, Minus, RotateCcw } from 'lucide-vue-next'
-import * as d3 from 'd3'
+import GraphSelectionActions from '@/components/graph/GraphSelectionActions.vue'
+import { Plus, Minus, RotateCcw } from 'lucide-vue-next'
 
 const route = useRoute()
 const store = useProjectStore()
 const projectId = computed(() => route.params.id)
 
 // Graph state composable for UI state management
-const { graphState, updateLayout, updateSelection, updateView, updateClustering, updateVisualMode, updateRenderMode, updatePerformanceMode, autoSelectRenderMode } = useGraphState()
+const {
+  graphState,
+  updateLayout,
+  updateSelection,
+  updateView,
+  updateClustering,
+  updateVisualMode,
+  updateRenderMode,
+  updatePerformanceMode,
+  updatePathResult,
+  updateNeighborResult,
+  interactionMeta,
+} = useGraphState()
+
+// Renderer composable — owns all D3 state
+const renderer = useGraphRenderer()
 
 // State: 'empty' | 'building' | 'ready'
 const viewState = ref('empty')
@@ -46,18 +56,9 @@ const showStats = ref(false)
 const showMiniMap = ref(false)
 const isLayoutLoading = ref(false)
 
-// D3 refs
+// DOM ref
 const svgContainer = ref(null)
-let simulation = null
 let sseConnection = null
-let _zoomBehavior = null
-let _svgSelection = null
-let _hybridRenderer = null // Hybrid renderer instance
-
-// Lasso selection state
-let _lassoPath = null
-let _lassoPoints = []
-let _isDrawingLasso = false
 
 const GRAPH_BUILD_STEPS = [
   { label: 'Extract text', stageNames: ['extracting_text'] },
@@ -89,8 +90,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   sseConnection?.close()
-  simulation?.stop()
-  _hybridRenderer?.destroy()
+  // renderer auto-cleans via onScopeDispose
 })
 
 async function loadGraphData() {
@@ -98,6 +98,11 @@ async function loadGraphData() {
     graphData.value = await getGraphData(projectId.value)
     viewState.value = 'ready'
     await nextTick()
+    if (svgContainer.value) {
+      renderer.bind(svgContainer.value, () => {
+        if (graphData.value) renderGraph()
+      })
+    }
     renderGraph()
   } catch {
     viewState.value = 'empty'
@@ -148,278 +153,41 @@ function confirmRebuild() {
   startBuild()
 }
 
-function zoomIn() {
-  if (_svgSelection && _zoomBehavior) _svgSelection.transition().duration(300).call(_zoomBehavior.scaleBy, 1.4)
-}
-function zoomOut() {
-  if (_svgSelection && _zoomBehavior) _svgSelection.transition().duration(300).call(_zoomBehavior.scaleBy, 0.7)
-}
-function zoomReset() {
-  if (_svgSelection && _zoomBehavior) _svgSelection.transition().duration(300).call(_zoomBehavior.transform, d3.zoomIdentity)
-}
+// Zoom controls — delegate to renderer
+function zoomIn() { renderer.zoomIn() }
+function zoomOut() { renderer.zoomOut() }
+function zoomReset() { renderer.zoomReset() }
 
 function renderGraph() {
   if (!svgContainer.value || !graphData.value) return
-
-  const container = svgContainer.value
-  const width = container.clientWidth
-  const height = container.clientHeight || 500
-
-  // DEBUG: Log container dimensions
-  console.log('[GraphTab] renderGraph - container dimensions:', {
-    clientWidth: container.clientWidth,
-    clientHeight: container.clientHeight,
-    offsetWidth: container.offsetWidth,
-    offsetHeight: container.offsetHeight,
-    computedWidth: width,
-    computedHeight: height,
-    container: container
-  })
-
-  // Auto-select render mode based on node count
-  const nodeCount = graphData.value.nodes.length
-  autoSelectRenderMode(nodeCount)
-
-  // Use hybrid renderer if in hybrid mode
-  const shouldUseHybrid = graphState.value.renderMode === RENDER_MODES.HYBRID
-
-  if (shouldUseHybrid) {
-    renderGraphHybrid(container, width, height)
-  } else {
-    renderGraphLegacy(container, width, height)
-  }
-
-  // Setup lasso event listeners if in lasso mode
+  renderer.render(graphData.value, renderOptions())
   setupLassoEvents()
 }
 
-/**
- * Setup lasso selection event listeners
- */
+function renderOptions() {
+  return {
+    renderMode: graphState.renderMode,
+    userSelectedRenderMode: graphState._userSelectedRenderMode,
+    onNodeClick: selectNode,
+    getNodeColor,
+    layoutParams: graphState.layoutParams[graphState.layout],
+  }
+}
+
 function setupLassoEvents() {
-  if (!svgContainer.value || graphState.value.selection.mode !== INTERACTION_MODES.LASSO) {
-    return
-  }
-
-  const svg = d3.select(svgContainer.value).select('svg')
-  if (svg.empty()) return
-
-  // Remove existing lasso listeners
-  svg.on('.lasso', null)
-
-  // Add lasso listeners
-  svg
-    .on('mousedown.lasso', (event) => {
-      // Only start lasso if not clicking on a node
-      if (event.target.tagName !== 'circle') {
-        startLassoSelection(event)
-      }
-    })
-    .on('mousemove.lasso', (event) => {
-      if (_isDrawingLasso) {
-        updateLassoSelection(event)
-      }
-    })
-    .on('mouseup.lasso', () => {
-      if (_isDrawingLasso) {
-        completeLassoSelection()
-      }
-    })
-}
-
-/**
- * Render graph using hybrid renderer (canvas edges + SVG nodes)
- */
-function renderGraphHybrid(container, width, height) {
-  // DEBUG: Log received dimensions
-  console.log('[GraphTab] renderGraphHybrid - dimensions:', { width, height })
-
-  d3.select(container).selectAll('*').remove()
-
-  const nodes = graphData.value.nodes.map(n => ({ ...n }))
-  const edges = graphData.value.edges.map(e => ({ ...e }))
-
-  // Set up force simulation with entity-type gravity and connection-based edge strength
-  simulation = runForceLayoutWithEdgeStrength(nodes, edges, {
-    width,
-    height,
-    linkDistance: 80, // Base distance, will be adjusted by edge weight
-    chargeStrength: -200,
-    collideRadius: 8,
-    alphaDecay: 0.02,
-    velocityDecay: 0.4,
-    typeGravity: 0.1, // Enable entity-type gravity (same-type nodes attract)
-    centralBias: 0.05, // Enable central bias (high-centrality nodes toward center)
-    iterations: 0, // Run continuously for smooth animation
-  })
-
-  // Create hybrid renderer
-  _hybridRenderer = renderHybrid(
-    { nodes, edges },
-    container,
-    {
-      width,
-      height,
-      onNodeClick: selectNode,
-      enableAnimations: true,
+  if (!svgContainer.value || graphState.selection.mode !== INTERACTION_MODES.LASSO) return
+  renderer.setupLasso((lassoPoints) => {
+    const selectedIds = findNodesInLasso(graphData.value.nodes, lassoPoints)
+    if (selectedIds.length > 0) {
+      const limitedIds = selectedIds.slice(0, 50)
+      updateSelection({ nodes: limitedIds })
     }
-  )
-
-  // Link simulation to renderer
-  _hybridRenderer.setSimulation(simulation)
-
-  // Update zoom controls
-  _svgSelection = _hybridRenderer.nodeSvg
-  _zoomBehavior = _hybridRenderer.zoom
-}
-
-/**
- * Render graph using legacy SVG/Canvas approach
- * Preserves existing functionality
- */
-function renderGraphLegacy(container, width, height) {
-  d3.select(container).selectAll('*').remove()
-
-  const svg = d3.select(container)
-    .append('svg')
-    .attr('width', width)
-    .attr('height', height)
-    .attr('viewBox', [0, 0, width, height])
-
-  const g = svg.append('g')
-  let currentZoomScale = 1
-
-  const zoom = d3.zoom()
-    .scaleExtent([0.3, 5])
-    .on('zoom', (event) => {
-      g.attr('transform', event.transform)
-      currentZoomScale = event.transform.k
-      g.selectAll('.node-label').attr('display', currentZoomScale > 1.5 ? 'block' : 'none')
-    })
-  svg.call(zoom)
-  _zoomBehavior = zoom
-  _svgSelection = svg
-
-  const nodes = graphData.value.nodes.map(n => ({ ...n }))
-  const edges = graphData.value.edges.map(e => ({ ...e }))
-
-  _connCounts = {}
-  edges.forEach(e => {
-    _connCounts[e.source] = (_connCounts[e.source] || 0) + 1
-    _connCounts[e.target] = (_connCounts[e.target] || 0) + 1
   })
-
-  function nodeRadius(id) {
-    return nodeRadiusFor(id)
-  }
-
-  const useCanvas = nodes.length > 150
-
-  if (useCanvas) {
-    // Use force layout utility with entity-type gravity and edge strength for canvas rendering
-    simulation = runForceLayoutWithEdgeStrength(nodes, edges, {
-      width,
-      height,
-      linkDistance: 80, // Base distance, will be adjusted by edge weight
-      chargeStrength: -200,
-      collideRadius: 8,
-      alphaDecay: 0.02,
-      velocityDecay: 0.4,
-      typeGravity: 0.1, // Enable entity-type gravity
-      centralBias: 0.05, // Enable central bias
-      iterations: 300, // Fixed iterations for canvas
-    })
-
-    g.selectAll('line')
-      .data(edges)
-      .join('line')
-      .attr('x1', d => d.source.x)
-      .attr('y1', d => d.source.y)
-      .attr('x2', d => d.target.x)
-      .attr('y2', d => d.target.y)
-      .attr('stroke', 'var(--border)')
-      .attr('stroke-width', 1)
-
-    g.selectAll('circle')
-      .data(nodes)
-      .join('circle')
-      .attr('cx', d => d.x)
-      .attr('cy', d => d.y)
-      .attr('r', d => nodeRadius(d.id))
-      .attr('fill', d => getNodeColor(d.type))
-      .attr('opacity', 0.85)
-      .on('click', (event, d) => selectNode(d))
-  } else {
-    // Use force layout utility with entity-type gravity and edge strength for SVG rendering
-    simulation = runForceLayoutWithEdgeStrength(nodes, edges, {
-      width,
-      height,
-      linkDistance: 80, // Base distance, will be adjusted by edge weight
-      chargeStrength: -200,
-      collideRadius: 8,
-      alphaDecay: 0.02,
-      velocityDecay: 0.4,
-      typeGravity: 0.1, // Enable entity-type gravity
-      centralBias: 0.05, // Enable central bias
-      iterations: 0, // Run continuously for smooth animation
-    })
-
-    const link = g.selectAll('line')
-      .data(edges)
-      .join('line')
-      .attr('stroke', 'var(--border)')
-      .attr('stroke-width', 1)
-
-    const node = g.selectAll('circle')
-      .data(nodes)
-      .join('circle')
-      .attr('r', d => nodeRadius(d.id))
-      .attr('fill', d => getNodeColor(d.type))
-      .attr('opacity', 0.85)
-      .attr('cursor', 'pointer')
-      .on('click', (event, d) => selectNode(d))
-      .call(d3.drag()
-        .on('start', (event, d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y })
-        .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y })
-        .on('end', (event, d) => { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null })
-      )
-
-    node.append('title').text(d => `${d.id} (${d.type})`)
-
-    const labels = g.selectAll('.node-label')
-      .data(nodes)
-      .join('text')
-      .attr('class', 'node-label')
-      .attr('display', 'none')
-      .attr('font-size', '10px')
-      .attr('font-family', 'var(--font-mono)')
-      .attr('fill', 'var(--text-primary)')
-      .attr('dx', d => nodeRadius(d.id) + 4)
-      .attr('dy', 4)
-      .text(d => d.id)
-
-    simulation.on('tick', () => {
-      link
-        .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-        .attr('x2', d => d.target.x).attr('y2', d => d.target.y)
-      node
-        .attr('cx', d => d.x).attr('cy', d => d.y)
-      labels
-        .attr('x', d => d.x).attr('y', d => d.y)
-    })
-
-    node.attr('opacity', 0)
-      .transition()
-      .delay((d, i) => 500 + i * 20)
-      .duration(200)
-      .attr('opacity', 0.85)
-  }
 }
 
 function selectNode(d) {
-  const currentMode = graphState.value.selection.mode
+  const currentMode = graphState.selection.mode
 
-  // Handle different interaction modes
   switch (currentMode) {
     case INTERACTION_MODES.PATH:
       handlePathModeSelect(d)
@@ -434,11 +202,7 @@ function selectNode(d) {
   }
 }
 
-/**
- * Handle node selection in SELECT mode
- */
 function handleSelectMode(d) {
-  // Update local selectedNode for sidebar display
   selectedNode.value = {
     ...d,
     connections: graphData.value.edges
@@ -449,251 +213,50 @@ function handleSelectMode(d) {
         type: graphData.value.nodes.find(n => n.id === ((e.source.id || e.source) === d.id ? (e.target.id || e.target) : (e.source.id || e.source)))?.type,
       })),
   }
-
-  // Update composable selection state
   updateSelection({ nodes: [d.id] })
 }
 
-/**
- * Handle node selection in PATH mode
- */
 function handlePathModeSelect(d) {
-  const pathState = {
-    start: graphState.value.selection.pathStart,
-    end: graphState.value.selection.pathEnd,
-  }
+  const pathStart = graphState.selection.pathStart
+  const pathEnd = graphState.selection.pathEnd
 
-  // Determine which node to set
-  if (!pathState.start) {
-    // Set start node
+  if (!pathStart) {
     updateSelection({ pathStart: d.id })
-    // Visual feedback for start node
-    highlightNode(d.id, 'path-start')
-  } else if (!pathState.end && d.id !== pathState.start) {
-    // Set end node and calculate path
+    renderer.highlightNode(d.id, 'path-start')
+  } else if (!pathEnd && d.id !== pathStart) {
     updateSelection({ pathEnd: d.id })
 
     const path = findShortestPath(
-      pathState.start,
+      pathStart,
       d.id,
       graphData.value.nodes,
       graphData.value.edges
     )
 
-    // Store path for visualization
-    graphState.value.selection.pathResult = path
-
-    // Highlight path nodes and edges
-    highlightPath(path)
+    updatePathResult(path)
+    renderer.highlightPath(path)
   } else {
-    // Reset and start new path
-    updateSelection({ pathStart: d.id, pathEnd: null, pathResult: [] })
-    clearHighlights()
-    highlightNode(d.id, 'path-start')
+    updateSelection({ pathStart: d.id, pathEnd: null })
+    updatePathResult([])
+    renderer.clearHighlights()
+    renderer.highlightNode(d.id, 'path-start')
   }
 }
 
-/**
- * Handle node selection in NEIGHBOR mode
- */
 function handleNeighborModeSelect(d) {
-  const hops = graphState.value.selection.neighborHops || 1
+  const hops = graphState.selection.neighborHops || 1
   const neighbors = findNeighbors(d.id, hops, graphData.value.nodes, graphData.value.edges)
 
-  // Store neighbor set for visualization
-  graphState.value.selection.neighborResult = Array.from(neighbors)
-
-  // Highlight neighbor nodes
-  highlightNeighbors(d.id, neighbors)
-}
-
-/**
- * Highlight a specific node
- */
-function highlightNode(nodeId, className) {
-  if (!svgContainer.value) return
-  d3.select(svgContainer.value)
-    .selectAll('circle')
-    .filter(d => d.id === nodeId)
-    .classed(className, true)
-}
-
-/**
- * Highlight shortest path
- */
-function highlightPath(path) {
-  if (!svgContainer.value || !path.length) return
-
-  clearHighlights()
-
-  const pathSet = new Set(path)
-
-  // Highlight path nodes
-  d3.select(svgContainer.value)
-    .selectAll('circle')
-    .filter(d => pathSet.has(d.id))
-    .classed('in-path', true)
-
-  // Highlight path edges
-  d3.select(svgContainer.value)
-    .selectAll('line')
-    .filter(d => {
-      const source = d.source.id || d.source
-      const target = d.target.id || d.target
-      return pathSet.has(source) && pathSet.has(target)
-    })
-    .classed('in-path', true)
-}
-
-/**
- * Highlight neighbor nodes
- */
-function highlightNeighbors(centerId, neighbors) {
-  if (!svgContainer.value) return
-
-  clearHighlights()
-
-  const neighborSet = neighbors
-
-  // Highlight center node
-  d3.select(svgContainer.value)
-    .selectAll('circle')
-    .filter(d => d.id === centerId)
-    .classed('neighbor-center', true)
-
-  // Highlight neighbor nodes
-  d3.select(svgContainer.value)
-    .selectAll('circle')
-    .filter(d => neighborSet.has(d.id) && d.id !== centerId)
-    .classed('neighbor-highlight', true)
-}
-
-/**
- * Clear all highlight classes
- */
-function clearHighlights() {
-  if (!svgContainer.value) return
-
-  d3.select(svgContainer.value)
-    .selectAll('circle')
-    .classed('path-start', false)
-    .classed('path-end', false)
-    .classed('in-path', false)
-    .classed('neighbor-center', false)
-    .classed('neighbor-highlight', false)
-
-  d3.select(svgContainer.value)
-    .selectAll('line')
-    .classed('in-path', false)
-}
-
-/**
- * Start lasso selection
- */
-function startLassoSelection(event) {
-  if (graphState.value.selection.mode !== INTERACTION_MODES.LASSO) return
-
-  _isDrawingLasso = true
-  _lassoPoints = [[event.x, event.y]]
-
-  // Create lasso path element
-  const svg = d3.select(svgContainer.value).select('svg')
-  _lassoPath = svg.append('path')
-    .attr('class', 'lasso-selection')
-    .attr('fill', 'rgba(0, 212, 255, 0.1)')
-    .attr('stroke', '#00d4ff')
-    .attr('stroke-width', 2)
-    .attr('stroke-dasharray', '5, 5')
-
-  updateLassoPath()
-}
-
-/**
- * Update lasso during drag
- */
-function updateLassoSelection(event) {
-  if (!_isDrawingLasso) return
-
-  _lassoPoints.push([event.x, event.y])
-  updateLassoPath()
-}
-
-/**
- * Complete lasso selection
- */
-function completeLassoSelection() {
-  if (!_isDrawingLasso) return
-
-  _isDrawingLasso = false
-
-  // Find nodes within lasso
-  const selectedIds = findNodesInLasso(graphData.value.nodes, _lassoPoints)
-
-  if (selectedIds.length > 0) {
-    // Update selection with lasso results (limit to max 50)
-    const limitedIds = selectedIds.slice(0, 50)
-    updateSelection({ nodes: limitedIds })
-
-    // Highlight selected nodes
-    d3.select(svgContainer.value)
-      .selectAll('circle')
-      .filter(d => limitedIds.includes(d.id))
-      .classed('lasso-selected', true)
-  }
-
-  // Remove lasso path after a short delay
-  setTimeout(() => {
-    if (_lassoPath) {
-      _lassoPath.remove()
-      _lassoPath = null
-    }
-    _lassoPoints = []
-  }, 500)
-}
-
-/**
- * Update lasso path visual
- */
-function updateLassoPath() {
-  if (!_lassoPath || _lassoPoints.length < 2) return
-
-  // Create path string from points
-  const pathString = _lassoPoints.map((p, i) => {
-    return i === 0 ? `M ${p[0]} ${p[1]}` : `L ${p[0]} ${p[1]}`
-  }).join(' ')
-
-  _lassoPath.attr('d', pathString + ' Z') // Close path
-}
-
-/**
- * Cancel lasso selection
- */
-function cancelLassoSelection() {
-  _isDrawingLasso = false
-
-  if (_lassoPath) {
-    _lassoPath.remove()
-    _lassoPath = null
-  }
-  _lassoPoints = []
-
-  // Clear lasso selection highlights
-  d3.select(svgContainer.value)
-    .selectAll('circle')
-    .classed('lasso-selected', false)
+  updateNeighborResult(Array.from(neighbors))
+  renderer.highlightNeighbors(d.id, neighbors)
 }
 
 function closeDetail() {
   selectedNode.value = null
-  // Clear composable selection state
   updateSelection({ nodes: [] })
 }
 
-/**
- * Handle graph reset from error boundary
- */
 function handleGraphReset() {
-  // Clear graph data and reload
   graphData.value = null
   selectedNode.value = null
   searchQuery.value = ''
@@ -701,258 +264,59 @@ function handleGraphReset() {
   loadGraphData()
 }
 
-/**
- * Handle layout change from toolbar
- */
-function handleLayoutChange(layout) {
-  updateLayout(layout)
-
+async function handleLayoutChange(layoutType) {
+  updateLayout(layoutType)
   if (!graphData.value) return
 
-  // Stop current simulation
-  if (simulation) {
-    simulation.stop()
-  }
-
-  // Apply new layout based on selection
-  switch (layout) {
-    case LAYOUT_TYPES.HIERARCHICAL:
-      applyHierarchicalLayout()
-      break
-    case LAYOUT_TYPES.CIRCULAR:
-      applyCircularLayout()
-      break
-    case LAYOUT_TYPES.CLUSTERED:
-      applyClusteredLayout()
-      break
-    case LAYOUT_TYPES.FORCE:
-    default:
-      // Re-render with force layout (default)
-      renderGraph()
-      break
-  }
-}
-
-/**
- * Apply hierarchical layout with animation
- */
-function applyHierarchicalLayout() {
-  if (!svgContainer.value || !graphData.value) return
-
-  const container = svgContainer.value
-  const width = container.clientWidth
-  const height = container.clientHeight || 500
-
-  const result = runHierarchicalLayout(
-    graphData.value.nodes,
-    graphData.value.edges,
-    { width, height }
-  )
-
-  // Update node positions in graphData
-  graphData.value.nodes.forEach(node => {
-    const positionedNode = result.nodes.find(n => n.id === node.id)
-    if (positionedNode) {
-      node.x = positionedNode.x
-      node.y = positionedNode.y
-    }
-  })
-
-  // Re-render with new positions
-  renderGraph()
-}
-
-/**
- * Apply circular layout with animation
- */
-function applyCircularLayout() {
-  if (!svgContainer.value || !graphData.value) return
-
-  const container = svgContainer.value
-  const width = container.clientWidth
-  const height = container.clientHeight || 500
-
-  const result = runCircularLayout(
-    graphData.value.nodes,
-    graphData.value.edges,
-    { width, height }
-  )
-
-  // Update node positions in graphData
-  graphData.value.nodes.forEach(node => {
-    const positionedNode = result.nodes.find(n => n.id === node.id)
-    if (positionedNode) {
-      node.x = positionedNode.x
-      node.y = positionedNode.y
-    }
-  })
-
-  // Re-render with new positions
-  renderGraph()
-}
-
-/**
- * Apply clustered layout with community detection
- */
-function applyClusteredLayout() {
-  if (!svgContainer.value || !graphData.value) return
-
-  const container = svgContainer.value
-  const width = container.clientWidth
-  const height = container.clientHeight || 500
-
-  const result = runClusteredLayout(
-    graphData.value.nodes,
-    graphData.value.edges,
-    { width, height }
-  )
-
-  // Update node positions in graphData
-  graphData.value.nodes.forEach(node => {
-    const positionedNode = result.nodes.find(n => n.id === node.id)
-    if (positionedNode) {
-      node.x = positionedNode.x
-      node.y = positionedNode.y
-    }
-  })
-
-  // Update clustering state if result includes clustering info
-  if (result.clustering) {
-    // Update cluster count in stats
-    graphStats.value.clusterCount = result.clustering.clusterCount
-  }
-
-  // Re-render with new positions
-  renderGraph()
-}
-
-/**
- * Handle interaction mode change from toolbar
- */
-function handleModeChange(mode) {
-  updateSelection({ mode })
-  console.log('Interaction mode changed to:', mode)
-}
-
-/**
- * Handle clustering toggle from toolbar
- */
-function handleClusteringToggle() {
-  const currentEnabled = graphState.value.clustering.enabled
-  updateClustering({ enabled: !currentEnabled })
-  console.log('Clustering toggled:', !currentEnabled)
-}
-
-/**
- * Handle expand all clusters
- */
-function handleExpandAllClusters() {
-  // Will be implemented with clustering functionality
-  console.log('Expand all clusters')
-}
-
-/**
- * Handle collapse all clusters
- */
-function handleCollapseAllClusters() {
-  // Will be implemented with clustering functionality
-  console.log('Collapse all clusters')
-}
-
-/**
- * Handle visual mode toggle
- */
-function handleVisualModeToggle() {
-  const currentMode = graphState.value.visualMode
-  updateVisualMode(currentMode === VISUAL_MODES.TWO_POINT_FIVE_D ? VISUAL_MODES.TWO_D : VISUAL_MODES.TWO_POINT_FIVE_D)
-}
-
-/**
- * Handle render mode change
- */
-function handleRenderModeChange(renderMode) {
-  updateRenderMode(renderMode)
-  // Re-render graph with new render mode
-  if (graphData.value) {
-    renderGraph()
-  }
-}
-
-/**
- * Handle performance mode toggle
- */
-function handlePerformanceModeToggle() {
-  const currentMode = graphState.value.performance.performanceMode
-  updatePerformanceMode(!currentMode)
-
-  // Re-render graph with new performance settings
-  if (graphData.value) {
-    renderGraph()
-  }
-}
-
-/**
- * Fit graph to screen
- */
-function fitToScreen() {
-  if (_svgSelection && _zoomBehavior) {
-    _svgSelection.transition().duration(500).call(_zoomBehavior.transform, d3.zoomIdentity)
-  }
-}
-
-/**
- * Handle mini-map navigation
- */
-function handleMiniMapNavigation({ x, y }) {
-  if (_svgSelection && _zoomBehavior) {
-    _svgSelection.transition().duration(300).call(
-      _zoomBehavior.transform,
-      d3.zoomIdentity.translate(x, y)
-    )
-  }
-}
-
-/**
- * Toggle settings panel
- */
-function toggleSettings() {
-  settingsPanelOpen.value = !settingsPanelOpen.value
-}
-
-/**
- * Close settings panel
- */
-function closeSettings() {
-  settingsPanelOpen.value = false
-}
-
-/**
- * Handle layout change from settings panel
- */
-async function handleLayoutChangeFromSettings(newLayout) {
+  renderer.stopSimulation()
   isLayoutLoading.value = true
+
   try {
-    await updateLayout(newLayout)
-    if (graphData.value) {
-      renderGraph()
+    if (layoutType === LAYOUT_TYPES.FORCE) {
+      renderer.render(graphData.value, renderOptions())
+    } else {
+      const result = renderer.applyLayout(layoutType, graphData.value, graphState.layoutParams[layoutType])
+      if (result?.clustering) {
+        updateClustering({ clusterCount: result.clustering.clusterCount })
+      }
+      renderer.render(graphData.value, renderOptions())
     }
   } finally {
     isLayoutLoading.value = false
   }
 }
 
-/**
- * Handle stats toggle from settings panel
- */
-function handleStatsToggle(show) {
-  showStats.value = show
+function handleModeChange(mode) { updateSelection({ mode }) }
+function handleClusteringToggle(enabled) { updateClustering({ enabled }) }
+
+function handleVisualModeToggle(enabled) {
+  updateVisualMode(enabled ? VISUAL_MODES.TWO_POINT_FIVE_D : VISUAL_MODES.TWO_D)
 }
 
-/**
- * Handle mini-map toggle from settings panel
- */
-function handleMiniMapToggle(show) {
-  showMiniMap.value = show
+function handleRenderModeChange(mode) {
+  updateRenderMode(mode, true)
+  if (graphData.value) renderer.render(graphData.value, renderOptions())
+}
+
+function handlePerformanceModeToggle(enabled) {
+  updatePerformanceMode(enabled)
+  if (graphData.value) renderer.render(graphData.value, renderOptions())
+}
+
+function handleStatsToggle(show) { showStats.value = show }
+function handleMiniMapToggle(show) { showMiniMap.value = show }
+function handleMiniMapNavigation({ x, y }) { renderer.panTo({ x, y }) }
+
+function toggleSettings() {
+  settingsPanelOpen.value = !settingsPanelOpen.value
+}
+
+function closeSettings() {
+  settingsPanelOpen.value = false
+}
+
+async function handleLayoutChangeFromSettings(newLayout) {
+  await handleLayoutChange(newLayout)
 }
 
 const entityTypes = computed(() => {
@@ -960,13 +324,12 @@ const entityTypes = computed(() => {
   return [...new Set(graphData.value.nodes.map(n => n.type).filter(Boolean))]
 })
 
-// Stats for GraphStatsPanel
 const graphStats = computed(() => ({
   nodeCount: graphData.value?.nodes.length || 0,
   edgeCount: graphData.value?.edges.length || 0,
-  clusterCount: 0, // Will be updated when clustering is implemented
-  selectedCount: graphState.value.selection.nodes.length,
-  layout: graphState.value.layout,
+  clusterCount: 0,
+  selectedCount: graphState.selection.nodes.length,
+  layout: graphState.layout,
 }))
 
 // Bounds for mini-map
@@ -981,18 +344,8 @@ const mainViewBounds = computed(() => {
   }
 })
 
-// Current viewport for mini-map
-const currentViewport = computed(() => {
-  if (!_svgSelection || !_zoomBehavior) return { x: 0, y: 0, w: 0, h: 0 }
-  // Try to get current transform
-  const transform = d3.zoomTransform(_svgSelection.node())
-  return {
-    x: transform.x,
-    y: transform.y,
-    w: (mainViewBounds.value.w / transform.k),
-    h: (mainViewBounds.value.h / transform.k),
-  }
-})
+// Current viewport for mini-map — delegates to renderer
+const currentViewport = computed(() => renderer.viewport.value)
 
 function toggleFilter(type) {
   const idx = activeFilters.value.indexOf(type)
@@ -1000,63 +353,19 @@ function toggleFilter(type) {
   else activeFilters.value.push(type)
 }
 
-// Wire search + filters into D3 visualization
 function applySearchAndFilters() {
-  if (!svgContainer.value || !graphData.value) return
-  const container = d3.select(svgContainer.value)
-  const query = searchQuery.value.toLowerCase().trim()
-  const filters = activeFilters.value
-
-  container.selectAll('circle').each(function (d) {
-    const matchesSearch = !query || d.id.toLowerCase().includes(query) || (d.type || '').toLowerCase().includes(query)
-    const matchesFilter = !filters.length || filters.includes(d.type)
-    const visible = matchesSearch && matchesFilter
-    d3.select(this)
-      .attr('opacity', visible ? 0.85 : 0.1)
-      .attr('r', visible && query && d.id.toLowerCase().includes(query) ? nodeRadiusFor(d.id) * 1.5 : nodeRadiusFor(d.id))
-  })
-  container.selectAll('.node-label').each(function (d) {
-    const matchesSearch = !query || d.id.toLowerCase().includes(query) || (d.type || '').toLowerCase().includes(query)
-    const matchesFilter = !filters.length || filters.includes(d.type)
-    d3.select(this).attr('opacity', matchesSearch && matchesFilter ? 1 : 0.1)
-  })
-  container.selectAll('line').each(function (d) {
-    const srcId = d.source.id || d.source
-    const tgtId = d.target.id || d.target
-    const srcNode = graphData.value.nodes.find(n => n.id === srcId)
-    const tgtNode = graphData.value.nodes.find(n => n.id === tgtId)
-    const srcMatch = (!query || srcId.toLowerCase().includes(query)) && (!filters.length || filters.includes(srcNode?.type))
-    const tgtMatch = (!query || tgtId.toLowerCase().includes(query)) && (!filters.length || filters.includes(tgtNode?.type))
-    d3.select(this).attr('opacity', srcMatch || tgtMatch ? 1 : 0.05)
-  })
-}
-
-// Store nodeRadius function for reuse in search highlighting
-let _connCounts = {}
-function nodeRadiusFor(id) {
-  return 8 + Math.min((_connCounts[id] || 0) * 1.5, 12)
+  if (!graphData.value) return
+  renderer.applySearchFilters(graphData.value, searchQuery.value, activeFilters.value)
 }
 
 watch([searchQuery, activeFilters], applySearchAndFilters, { deep: true })
 
-// Watch for interaction mode changes
-watch(() => graphState.value.selection.mode, (newMode, oldMode) => {
-  // Cancel any ongoing lasso when leaving lasso mode
-  if (oldMode === INTERACTION_MODES.LASSO && _isDrawingLasso) {
-    cancelLassoSelection()
-  }
-
-  // Setup lasso events when entering lasso mode
+watch(() => graphState.selection.mode, (newMode, oldMode) => {
+  if (oldMode === INTERACTION_MODES.LASSO) renderer.teardownLasso()
   if (newMode === INTERACTION_MODES.LASSO && svgContainer.value) {
-    nextTick(() => {
-      setupLassoEvents()
-    })
+    nextTick(() => setupLassoEvents())
   }
-
-  // Clear highlights when switching modes
-  if (newMode !== oldMode) {
-    clearHighlights()
-  }
+  if (newMode !== oldMode) renderer.clearHighlights()
 })
 </script>
 
