@@ -256,11 +256,9 @@ const interactionModeOptions = computed(() => [
 
 <style scoped>
 .settings-panel {
-  --top-bar-height: 53px;
-
-  position: fixed;
+  position: absolute;
   right: 0;
-  top: var(--top-bar-height);
+  top: 0;
   bottom: 0;
   width: 300px;
   background: var(--surface-raised);
@@ -305,7 +303,7 @@ const interactionModeOptions = computed(() => [
 .loading-spinner {
   width: 16px;
   height: 16px;
-  border: 2px solid var(--color-primary, #00d4ff);
+  border: 2px solid var(--color-primary);
   border-top-color: transparent;
   border-radius: 50%;
   animation: spin 600ms linear infinite;
@@ -317,13 +315,13 @@ const interactionModeOptions = computed(() => [
 
 .loading-text {
   font-size: 12px;
-  color: var(--color-primary, #00d4ff);
+  color: var(--color-primary);
   font-weight: 500;
 }
 
 .settings-section {
   padding: 20px 20px 16px;
-  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.06));
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .settings-section:last-child {
@@ -366,8 +364,8 @@ const interactionModeOptions = computed(() => [
 
 .layout-radio.selected {
   background: rgba(0, 212, 255, 0.15);
-  border-color: var(--color-primary, rgba(0, 212, 255, 0.3));
-  color: var(--color-primary, #00d4ff);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 
 .layout-radio:has(:disabled) {
@@ -387,8 +385,8 @@ const interactionModeOptions = computed(() => [
 }
 
 .layout-radio input[type="radio"]:checked {
-  border-color: var(--color-primary, #00d4ff);
-  background: var(--color-primary, #00d4ff);
+  border-color: var(--color-primary);
+  background: var(--color-primary);
 }
 
 .option-checkbox {
@@ -418,8 +416,8 @@ const interactionModeOptions = computed(() => [
 }
 
 .option-checkbox input[type="checkbox"]:checked {
-  background: var(--color-primary, #00d4ff);
-  border-color: var(--color-primary, #00d4ff);
+  background: var(--color-primary);
+  border-color: var(--color-primary);
 }
 
 .option-checkbox input[type="checkbox"]:checked::after {
@@ -498,7 +496,7 @@ const interactionModeOptions = computed(() => [
 .layout-radio:focus-visible,
 .option-checkbox:focus-visible,
 .select-input:focus-visible {
-  outline: 2px solid var(--color-primary, #00d4ff);
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 
