@@ -2,16 +2,18 @@
 GraphTopBar Component
 
 Top navigation bar for the graph visualization.
-Contains search input, entity type filter buttons, and settings toggle.
+Contains search input, entity type filter buttons, layout dropdown, and settings toggle.
 
 @emits update:searchQuery - Emitted when search input changes
 @emits toggle-filter - Emitted when a filter button is clicked
 @emits toggle-settings - Emitted when settings button is clicked
+@emits select-layout - Emitted when a layout option is selected
 -->
 
 <script setup>
 import { Settings } from 'lucide-vue-next'
 import { Search } from 'lucide-vue-next'
+import { NEON_COLORS, LAYOUT_TYPES } from '@/constants/graph.js'
 
 const props = defineProps({
   searchQuery: {
@@ -31,13 +33,29 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  currentLayout: {
+    type: String,
+    default: 'force',
+  },
+  interactionInstruction: {
+    type: String,
+    default: null,
+  },
 })
 
 const emit = defineEmits([
   'update:searchQuery',
   'toggle-filter',
   'toggle-settings',
+  'select-layout',
 ])
+
+const layoutOptions = [
+  { value: LAYOUT_TYPES.FORCE, label: 'Force' },
+  { value: LAYOUT_TYPES.HIERARCHICAL, label: 'Hierarchy' },
+  { value: LAYOUT_TYPES.CIRCULAR, label: 'Circular' },
+  { value: LAYOUT_TYPES.CLUSTERED, label: 'Clustered' },
+]
 
 function handleSearchInput(event) {
   emit('update:searchQuery', event.target.value)
@@ -53,38 +71,56 @@ function handleSettingsToggle() {
 </script>
 
 <template>
-  <div class="graph-top-bar">
-    <div class="search-section">
-      <Search :size="14" />
-      <input
-        id="entity-search"
-        :value="searchQuery"
-        @input="handleSearchInput"
-        placeholder="Search entities..."
-        aria-label="Search entities"
-      />
-    </div>
-    <div v-if="entityTypes.length > 0" class="filter-section">
-      <button
-        v-for="(type, index) in entityTypes"
-        :key="type"
-        :class="{ active: activeFilters.includes(type) }"
-        :style="{ animationDelay: `${index * 25}ms` }"
-        :aria-pressed="activeFilters.includes(type)"
-        @click="handleFilterToggle(type)"
+  <div>
+    <div class="graph-top-bar">
+      <div class="search-section">
+        <Search :size="14" />
+        <input
+          id="entity-search"
+          :value="searchQuery"
+          @input="handleSearchInput"
+          placeholder="Search entities..."
+          aria-label="Search entities"
+        />
+      </div>
+      <div v-if="entityTypes.length > 0" class="filter-section">
+        <button
+          v-for="(type, index) in entityTypes"
+          :key="type"
+          :class="{ active: activeFilters.includes(type) }"
+          :style="{ animationDelay: `${index * 25}ms` }"
+          :aria-pressed="activeFilters.includes(type)"
+          @click="handleFilterToggle(type)"
+        >
+          <span
+            class="filter-dot"
+            :style="{ backgroundColor: NEON_COLORS[type] || 'var(--text-tertiary)' }"
+          />
+          {{ type }}
+        </button>
+      </div>
+      <select
+        class="layout-select"
+        :value="currentLayout"
+        @change="emit('select-layout', $event.target.value)"
       >
-        {{ type }}
+        <option v-for="opt in layoutOptions" :key="opt.value" :value="opt.value">
+          {{ opt.label }}
+        </option>
+      </select>
+      <button
+        class="settings-toggle"
+        :class="{ active: settingsPanelOpen }"
+        :aria-pressed="settingsPanelOpen"
+        aria-label="Toggle settings panel"
+        @click="handleSettingsToggle"
+      >
+        <Settings :size="16" />
       </button>
     </div>
-    <button
-      class="settings-toggle"
-      :class="{ active: settingsPanelOpen }"
-      :aria-pressed="settingsPanelOpen"
-      aria-label="Toggle settings panel"
-      @click="handleSettingsToggle"
-    >
-      <Settings :size="16" />
-    </button>
+    <div v-if="interactionInstruction" class="interaction-hint">
+      {{ interactionInstruction }}
+    </div>
   </div>
 </template>
 
@@ -121,7 +157,7 @@ function handleSettingsToggle() {
 }
 
 .search-section:focus-within {
-  border-color: var(--color-primary, rgba(0, 212, 255, 0.3));
+  border-color: var(--color-primary);
   box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.1);
 }
 
@@ -147,6 +183,9 @@ function handleSettingsToggle() {
 }
 
 .filter-section button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   padding: 6px 12px;
   border-radius: 6px;
   background: var(--surface-sunken);
@@ -181,11 +220,41 @@ function handleSettingsToggle() {
 }
 
 .filter-section button.active {
-  background: var(--color-primary, #00d4ff);
+  background: var(--color-primary);
   color: white;
   box-shadow: 0 2px 8px rgba(0, 212, 255, 0.3);
   border-color: var(--color-primary);
   opacity: 1;
+}
+
+.filter-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.layout-select {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 150ms;
+  flex-shrink: 0;
+}
+
+.layout-select:hover {
+  background: var(--surface-elevated);
+  border-color: var(--border);
+}
+
+.layout-select:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .settings-toggle {
@@ -207,7 +276,7 @@ function handleSettingsToggle() {
 }
 
 .settings-toggle.active {
-  background: var(--color-primary, #00d4ff);
+  background: var(--color-primary);
   color: white;
   box-shadow: 0 2px 12px rgba(0, 212, 255, 0.4);
 }
@@ -224,8 +293,17 @@ function handleSettingsToggle() {
 /* Keyboard focus indicators */
 .filter-section button:focus-visible,
 .settings-toggle:focus-visible {
-  outline: 2px solid var(--color-primary, #00d4ff);
+  outline: 2px solid var(--color-primary);
   outline-offset: 2px;
+}
+
+.interaction-hint {
+  padding: 4px 12px;
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-align: center;
 }
 
 /* Responsive */
