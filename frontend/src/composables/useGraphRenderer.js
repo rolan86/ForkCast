@@ -116,29 +116,54 @@ export function useGraphRenderer() {
       })
     }
 
+    // Center the graph in the viewport
+    if (options.skipSimulation) {
+      // Static layout — nodes already positioned, center immediately
+      fitToView(false)
+    } else if (_simulation.value) {
+      // Force layout — center after initial settling (~1s) and on simulation end
+      const earlyFitTimer = setTimeout(() => fitToView(true), 800)
+      _simulation.value.on('end.fitToView', () => {
+        clearTimeout(earlyFitTimer)
+        fitToView(true)
+      })
+    }
+
     isRendering.value = false
+  }
+
+  function _prepareGraphCopies(graphData) {
+    const nodes = graphData.nodes.map(n => ({ ...n }))
+    // Normalize source/target to strings, then resolve to node object references
+    const nodeMap = new Map(nodes.map(n => [n.id, n]))
+    const edges = graphData.edges.map(e => ({
+      ...e,
+      source: nodeMap.get(e.source.id || e.source) || e.source,
+      target: nodeMap.get(e.target.id || e.target) || e.target,
+    }))
+    return { nodes, edges }
   }
 
   function _renderHybrid(container, graphData, width, height, options) {
     d3.select(container).selectAll('*').remove()
 
-    const nodes = graphData.nodes.map(n => ({ ...n }))
-    const edges = graphData.edges.map(e => ({ ...e }))
+    const { nodes, edges } = _prepareGraphCopies(graphData)
 
-    const params = options.layoutParams || {}
-
-    _simulation.value = runForceLayoutWithEdgeStrength(nodes, edges, {
-      width,
-      height,
-      linkDistance: params.linkDistance || 80,
-      chargeStrength: params.chargeStrength || -200,
-      collideRadius: params.collideRadius || 8,
-      alphaDecay: 0.02,
-      velocityDecay: 0.4,
-      typeGravity: 0.1,
-      centralBias: 0.05,
-      iterations: 0,
-    })
+    if (!options.skipSimulation) {
+      const params = options.layoutParams || {}
+      _simulation.value = runForceLayoutWithEdgeStrength(nodes, edges, {
+        width,
+        height,
+        linkDistance: params.linkDistance || 80,
+        chargeStrength: params.chargeStrength || -200,
+        collideRadius: params.collideRadius || 8,
+        alphaDecay: 0.02,
+        velocityDecay: 0.4,
+        typeGravity: 0.1,
+        centralBias: 0.05,
+        iterations: 0,
+      })
+    }
 
     _hybridRenderer.value = renderHybrid(
       { nodes, edges },
@@ -147,11 +172,21 @@ export function useGraphRenderer() {
         width,
         height,
         onNodeClick: options.onNodeClick,
-        enableAnimations: true,
+        enableAnimations: !options.skipSimulation,
+        visualMode: options.visualMode,
       }
     )
 
-    _hybridRenderer.value.setSimulation(_simulation.value)
+    if (_simulation.value) {
+      _hybridRenderer.value.setSimulation(_simulation.value)
+
+      // Wire tick handler so SVG nodes track simulation positions
+      _simulation.value.on('tick', () => {
+        _hybridRenderer.value.updateNodes(nodes)
+        _hybridRenderer.value.updateEdges(edges)
+      })
+    }
+
     _svgSelection.value = _hybridRenderer.value.nodeSvg
     _zoomBehavior.value = _hybridRenderer.value.zoom
   }
@@ -180,26 +215,29 @@ export function useGraphRenderer() {
     _zoomBehavior.value = zoom
     _svgSelection.value = svg
 
-    const nodes = graphData.nodes.map(n => ({ ...n }))
-    const edges = graphData.edges.map(e => ({ ...e }))
+    const { nodes, edges } = _prepareGraphCopies(graphData)
 
     const getNodeColor = options.getNodeColor || ((type) => NEON_COLORS[type] || '#6366f1')
     const params = options.layoutParams || {}
     const useCanvas = mode === 'canvas'
+    const is25D = options.visualMode === '2.5d'
 
-    if (useCanvas) {
-      _simulation.value = runForceLayoutWithEdgeStrength(nodes, edges, {
-        width,
-        height,
-        linkDistance: params.linkDistance || 80,
-        chargeStrength: params.chargeStrength || -200,
-        collideRadius: params.collideRadius || 8,
-        alphaDecay: 0.02,
-        velocityDecay: 0.4,
-        typeGravity: 0.1,
-        centralBias: 0.05,
-        iterations: 300,
-      })
+    if (useCanvas || options.skipSimulation) {
+      // Static layout: either canvas mode with pre-computed positions, or non-force layout
+      if (!options.skipSimulation) {
+        _simulation.value = runForceLayoutWithEdgeStrength(nodes, edges, {
+          width,
+          height,
+          linkDistance: params.linkDistance || 80,
+          chargeStrength: params.chargeStrength || -200,
+          collideRadius: params.collideRadius || 8,
+          alphaDecay: 0.02,
+          velocityDecay: 0.4,
+          typeGravity: 0.1,
+          centralBias: 0.05,
+          iterations: 300,
+        })
+      }
 
       g.selectAll('line')
         .data(edges)
@@ -209,9 +247,11 @@ export function useGraphRenderer() {
         .attr('x2', d => d.target.x)
         .attr('y2', d => d.target.y)
         .attr('stroke', 'var(--border)')
+        .attr('stroke-opacity', is25D ? 0.6 : 0.3)
         .attr('stroke-width', 1)
+        .style('filter', is25D ? 'drop-shadow(0 0 3px var(--border))' : 'none')
 
-      g.selectAll('circle')
+      const node = g.selectAll('circle')
         .data(nodes)
         .join('circle')
         .attr('cx', d => d.x)
@@ -219,8 +259,27 @@ export function useGraphRenderer() {
         .attr('r', d => nodeRadiusFor(d.id))
         .attr('fill', d => getNodeColor(d.type))
         .attr('opacity', 0.85)
+        .attr('cursor', 'pointer')
+        .style('filter', is25D ? 'drop-shadow(0 0 8px currentColor)' : 'none')
         .on('click', (event, d) => options.onNodeClick(d))
+
+      node.append('title').text(d => `${d.id} (${d.type})`)
+
+      g.selectAll('.node-label')
+        .data(nodes)
+        .join('text')
+        .attr('class', 'node-label')
+        .attr('display', 'none')
+        .attr('font-size', '10px')
+        .attr('font-family', 'var(--font-mono)')
+        .attr('fill', 'var(--text-primary)')
+        .attr('x', d => d.x)
+        .attr('y', d => d.y)
+        .attr('dx', d => nodeRadiusFor(d.id) + 4)
+        .attr('dy', 4)
+        .text(d => d.id)
     } else {
+      // SVG mode with live force simulation
       _simulation.value = runForceLayoutWithEdgeStrength(nodes, edges, {
         width,
         height,
@@ -238,7 +297,9 @@ export function useGraphRenderer() {
         .data(edges)
         .join('line')
         .attr('stroke', 'var(--border)')
+        .attr('stroke-opacity', is25D ? 0.6 : 0.3)
         .attr('stroke-width', 1)
+        .style('filter', is25D ? 'drop-shadow(0 0 3px var(--border))' : 'none')
 
       const node = g.selectAll('circle')
         .data(nodes)
@@ -247,6 +308,7 @@ export function useGraphRenderer() {
         .attr('fill', d => getNodeColor(d.type))
         .attr('opacity', 0.85)
         .attr('cursor', 'pointer')
+        .style('filter', is25D ? 'drop-shadow(0 0 8px currentColor)' : 'none')
         .on('click', (event, d) => options.onNodeClick(d))
         .call(d3.drag()
           .on('start', (event, d) => {
@@ -306,7 +368,13 @@ export function useGraphRenderer() {
     const layoutFn = layoutFns[type]
     if (!layoutFn) return
 
-    const result = layoutFn(graphData.nodes, graphData.edges, { width, height, ...params })
+    // Pass edge copies so layout functions don't mutate graphData.edges
+    const edgeCopies = graphData.edges.map(e => ({
+      ...e,
+      source: e.source.id || e.source,
+      target: e.target.id || e.target,
+    }))
+    const result = layoutFn(graphData.nodes, edgeCopies, { width, height, ...params })
 
     graphData.nodes.forEach(node => {
       const positioned = result.nodes.find(n => n.id === node.id)
@@ -361,6 +429,50 @@ export function useGraphRenderer() {
   function zoomReset() {
     if (_svgSelection.value && _zoomBehavior.value)
       _svgSelection.value.transition().duration(300).call(_zoomBehavior.value.transform, d3.zoomIdentity)
+  }
+
+  function fitToView(animated = true) {
+    const container = _container.value
+    if (!container || !_svgSelection.value || !_zoomBehavior.value) return
+
+    const { width, height } = getDimensions()
+    const nodeEls = d3.select(container).selectAll('circle')
+    if (nodeEls.empty()) return
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    nodeEls.each(function (d) {
+      const r = parseFloat(d3.select(this).attr('r')) || 8
+      if (d.x != null && d.y != null) {
+        minX = Math.min(minX, d.x - r)
+        minY = Math.min(minY, d.y - r)
+        maxX = Math.max(maxX, d.x + r)
+        maxY = Math.max(maxY, d.y + r)
+      }
+    })
+
+    if (!isFinite(minX)) return
+
+    const graphWidth = maxX - minX
+    const graphHeight = maxY - minY
+    const padding = 40
+    const scale = Math.min(
+      (width - padding * 2) / graphWidth,
+      (height - padding * 2) / graphHeight,
+      1.5 // don't zoom in too much for small graphs
+    )
+    const centerX = (minX + maxX) / 2
+    const centerY = (minY + maxY) / 2
+    const transform = d3.zoomIdentity
+      .translate(width / 2, height / 2)
+      .scale(scale)
+      .translate(-centerX, -centerY)
+
+    const sel = _svgSelection.value
+    if (animated) {
+      sel.transition().duration(500).call(_zoomBehavior.value.transform, transform)
+    } else {
+      sel.call(_zoomBehavior.value.transform, transform)
+    }
   }
 
   function panTo({ x, y }) {
@@ -529,7 +641,7 @@ export function useGraphRenderer() {
     applyLayout,
     applySearchFilters,
     stopSimulation,
-    zoomIn, zoomOut, zoomReset, panTo,
+    zoomIn, zoomOut, zoomReset, fitToView, panTo,
     highlightNode, highlightPath, highlightNeighbors, clearHighlights,
     setupLasso, teardownLasso,
   }

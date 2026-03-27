@@ -168,6 +168,7 @@ function renderOptions() {
   return {
     renderMode: graphState.renderMode,
     userSelectedRenderMode: graphState._userSelectedRenderMode,
+    visualMode: graphState.visualMode,
     onNodeClick: selectNode,
     getNodeColor,
     layoutParams: graphState.layoutParams[graphState.layout],
@@ -279,7 +280,7 @@ async function handleLayoutChange(layoutType) {
       if (result?.clustering) {
         updateClustering({ clusterCount: result.clustering.clusterCount })
       }
-      renderer.render(graphData.value, renderOptions())
+      renderer.render(graphData.value, { ...renderOptions(), skipSimulation: true })
     }
   } finally {
     isLayoutLoading.value = false

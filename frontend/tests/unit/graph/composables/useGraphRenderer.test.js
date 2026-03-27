@@ -16,6 +16,7 @@ vi.mock('d3', () => ({
     each: vi.fn().mockReturnThis(),
     filter: vi.fn().mockReturnThis(),
     classed: vi.fn().mockReturnThis(),
+    style: vi.fn().mockReturnThis(),
     transition: vi.fn().mockReturnThis(),
     duration: vi.fn().mockReturnThis(),
     delay: vi.fn().mockReturnThis(),
