@@ -33,6 +33,7 @@ Thumbs.db
 # Superpowers
 .superpowers/
 docs/superpowers/
+**/docs/superpowers/
 
 # Use cases (contain live test data)
 docs/use-cases/
@@ -53,6 +54,14 @@ uv.lock
 
 # Git worktrees
 .worktrees/
+
+# Logs
+log/
+
+# Root-level npm artifacts (frontend deps belong in frontend/)
+/node_modules/
+/package.json
+/package-lock.json
 
 # Frontend
 frontend/node_modules/
