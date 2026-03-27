@@ -35,8 +35,8 @@ Thumbs.db
 docs/superpowers/
 **/docs/superpowers/
 
-# Use cases (contain live test data)
-docs/use-cases/
+# Use cases — tracked (linked from README)
+# docs/use-cases/
 
 # Python virtualenv
 .venv/
