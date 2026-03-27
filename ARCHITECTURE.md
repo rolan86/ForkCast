@@ -149,6 +149,21 @@ frontend/
 │       ├── ProgressPanel.vue     # SSE progress display (graph/sim/report)
 │       ├── AgentAvatar.vue       # Deterministic color avatar from name hash
 │       └── ...                   # Toast, EmptyState, StatCard, etc.
+│   ├── composables/
+│   │   └── useGraphState.js      # Graph UI state management (layout, selection, view)
+│   ├── constants/
+│   │   └── graph.js              # Graph visualization constants (colors, layouts, modes)
+│   └── utils/
+│       └── graph/
+│           ├── layouts/          # Layout algorithms
+│           │   ├── index.js      # Layout registry and unified API
+│           │   ├── force.js      # Force-directed with entity-type gravity
+│           │   ├── hierarchical.js # Tree-based hierarchical layout
+│           │   └── circular.js   # Circular arrangement with type wedges
+│           └── rendering/
+│               ├── transition.js # Layout transition animations
+│               ├── edgeRenderer.js # Glowing edge rendering
+│               └── hybridRenderer.js # Canvas edges + SVG nodes hybrid
 ```
 
 
@@ -467,7 +482,126 @@ data/
 ### Health
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/health` | Service health check |
+| GET | `/health` | Service health check
+
+
+## Graph Visualization System
+
+The frontend graph visualization provides an interactive 2.5D holographic interface for exploring knowledge graphs.
+
+### Architecture
+
+```
+GraphTab.vue (Main View)
+    │
+    ├── useGraphState (Composable)
+    │   └── Manages: layout, visual mode, render mode, selection, clustering, view state
+    │   └── Persists to localStorage for layout preferences
+    │
+    ├── GraphToolbar (Control Panel)
+    │   └── Layout selector, mode buttons, clustering controls, view controls
+    │
+    ├── GraphStatsPanel (Metrics Display)
+    │   └── Node count, edge count, clusters, selected, layout, density
+    │
+    ├── GraphMiniMap (Navigation)
+    │   └── 150x150px overview with draggable viewport indicator
+    │
+    ├── GraphErrorBoundary (Error Handling)
+    │   └── Catches rendering errors with retry/reset functionality
+    │
+    └── D3 Rendering
+        ├── Hybrid Mode (100-300 nodes)
+        │   ├── Canvas: Edges (gradient, glow effects)
+        │   └── SVG: Nodes (interactions, hover, selection)
+        ├── SVG Mode (< 100 nodes)
+        │   └── Pure SVG with D3 force simulation
+        └── Canvas Mode (300+ nodes)
+            └── Pre-calculated positions, canvas rendering
+```
+
+### Layout Algorithms
+
+The layout system provides multiple algorithms accessible via the layout registry:
+
+| Layout | Description | Best For | Features |
+|--------|-------------|----------|----------|
+| **Force** | Physics-based simulation with entity-type gravity | Large graphs (300-500 nodes) | Same-type attraction, central bias, edge weighting |
+| **Hierarchical** | Tree-based layout with root at top | Directed/acyclic graphs | Centrality-based root, level spacing, sibling ordering |
+| **Circular** | Circular arrangement with type-based wedges | Small-medium graphs (50-300 nodes) | Entity type grouping, connection-based positioning |
+| **Clustered** | (Pending) Community-aware layout | Graphs with clear clusters | Louvain detection, cluster boundaries |
+
+**Layout Registry API:**
+```javascript
+import { runLayout, getLayoutFunction, getLayoutMetadata } from '@/utils/graph/layouts/index.js'
+
+// Run any layout by type
+const result = runLayout(LAYOUT_TYPES.FORCE, nodes, edges, options)
+
+// Get layout metadata
+const metadata = getLayoutMetadata(LAYOUT_TYPES.FORCE)
+// { name, description, supportsTransitions, supportsClustering, recommendedMaxNodes }
+```
+
+### Visual Modes
+
+| Mode | Description | Features |
+|------|-------------|----------|
+| **2D** | Flat rendering | Standard SVG/canvas rendering |
+| **2.5D** | Holographic effect (default) | Radial gradients, box-shadows, GPU acceleration, pulsing glow |
+
+**Neon Color Palette:**
+- Person: Cyan (#00d4ff)
+- Organization: Purple (#a855f7)
+- Concept: Indigo (#818cf8)
+- Topic: Green (#34d399)
+- Event: Amber (#fbbf24)
+- Location: Red (#f87171)
+- Product: Pink (#f472b6)
+
+### Interaction Modes
+
+| Mode | Description | Usage |
+|------|-------------|-------|
+| **Select** | Single/multi-select nodes | Click to select, Cmd/Ctrl+click for multi-select (max 10) |
+| **Path** | Find shortest path | Select start/end nodes, highlights shortest path |
+| **Neighbor** | Highlight N-hop neighbors | Select node, specify hop count (1-5) |
+| **Lasso** | Drag to select multiple | Draw selection region around nodes |
+
+### Performance Optimization
+
+**Auto-switching Render Modes:**
+- **SVG** (< 100 nodes): Best interactions, slow rendering
+- **Hybrid** (100-300 nodes): Canvas edges + SVG nodes, balanced
+- **Canvas** (300+ nodes): Fastest rendering, limited interactions
+
+**Performance Mode Toggle:**
+- Disables animations
+- Reduces effect complexity
+- Lowers render quality for frame rate
+
+### State Persistence
+
+User preferences persisted to localStorage:
+- Layout preference (`graph-layout-preference`)
+- Layout parameters (`graph-layout-params`)
+- Auto-loaded on session init
+
+### Transition System
+
+Smooth layout transitions via D3:
+- 500ms duration, ease-in-out timing
+- Animates node positions and edge paths
+- Maintains graph bounds during transition
+- Disables interactions during animation
+
+### Clustering System (In Progress)
+
+**Louvain Community Detection:**
+- Automatic community detection
+- Collapsible super-nodes
+- Cluster boundary visualization
+- Expand/collapse animations |
 
 
 ## CLI Commands
