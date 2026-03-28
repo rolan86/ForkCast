@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from forkcast.db.connection import get_db
-from forkcast.llm.client import ClaudeClient
+from forkcast.llm.client import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ Rules:
 
 
 def generate_ontology(
-    client: ClaudeClient,
+    client: LLMClient,
     requirement: str,
     document_summary: str,
     hints_path: Path | None = None,

@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from forkcast.graph.chunker import TextChunk
-from forkcast.llm.client import ClaudeClient
+from forkcast.llm.client import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class ExtractionResult:
 
 
 def extract_from_chunk(
-    client: ClaudeClient,
+    client: LLMClient,
     chunk: TextChunk,
     ontology: dict[str, Any],
     requirement: str,
@@ -111,7 +111,7 @@ def extract_from_chunk(
 
 
 def extract_from_chunks(
-    client: ClaudeClient,
+    client: LLMClient,
     chunks: list[TextChunk],
     ontology: dict[str, Any],
     requirement: str,

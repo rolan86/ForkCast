@@ -12,7 +12,7 @@ from forkcast.graph.graph_store import build_graph, register_graph, save_graph
 from forkcast.graph.ontology import generate_ontology, store_ontology
 from forkcast.graph.text_extractor import extract_text, store_text_content
 from forkcast.graph.vector_store import create_vector_store, index_chunks, index_entities
-from forkcast.llm.client import ClaudeClient
+from forkcast.llm.client import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ def build_graph_pipeline(
     db_path: Path,
     data_dir: Path,
     project_id: str,
-    client: ClaudeClient,
+    client: LLMClient,
     domains_dir: Path,
     on_progress: ProgressCallback = None,
 ) -> dict[str, Any]:

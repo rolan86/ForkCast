@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from jinja2 import Template
 
-from forkcast.llm.client import ClaudeClient
+from forkcast.llm.client import LLMClient
 from forkcast.llm.utils import strip_code_fences
 from forkcast.simulation.models import AgentProfile
 
@@ -55,7 +55,7 @@ def load_existing_profiles(profiles_dir: Path) -> set[str]:
 
 
 def generate_profile(
-    client: ClaudeClient,
+    client: LLMClient,
     entity: dict[str, Any],
     agent_id: int,
     related_entities: list[str],
@@ -110,7 +110,7 @@ def generate_profile(
 
 
 def generate_profiles(
-    client: ClaudeClient,
+    client: LLMClient,
     entities: list[dict[str, Any]],
     graph_data: dict[str, Any],
     requirement: str,

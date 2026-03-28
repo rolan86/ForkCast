@@ -6,7 +6,7 @@ from typing import Any
 
 import networkx as nx
 
-from forkcast.llm.client import ClaudeClient
+from forkcast.llm.client import LLMClient
 from forkcast.simulation.models import AgentProfile
 
 
@@ -40,5 +40,5 @@ class ToolContext:
     graph: nx.DiGraph
     chroma_collection: Any  # ChromaDB Collection
     profiles: list[AgentProfile]
-    client: ClaudeClient
+    client: LLMClient
     domains_dir: Path

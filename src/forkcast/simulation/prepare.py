@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 from forkcast.db.connection import get_db
 from forkcast.domains.loader import load_domain, read_prompt
-from forkcast.llm.client import ClaudeClient
+from forkcast.llm.client import LLMClient
 from forkcast.simulation.config_generator import generate_config
 from forkcast.simulation.models import AgentProfile, PrepareResult
 from forkcast.simulation.profile_generator import generate_profiles
@@ -62,7 +62,7 @@ def prepare_simulation(
     db_path: Path,
     data_dir: Path,
     simulation_id: str,
-    client: ClaudeClient,
+    client: LLMClient,
     domains_dir: Path,
     on_progress: ProgressCallback = None,
     force_regenerate: bool = False,

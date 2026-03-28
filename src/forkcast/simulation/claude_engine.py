@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 from jinja2 import Template
 
-from forkcast.llm.client import ClaudeClient
+from forkcast.llm.client import LLMClient
 from forkcast.simulation.action import Action, ActionType
 from forkcast.simulation.models import AgentProfile, SimulationConfig
 from forkcast.simulation.state import SimulationState
@@ -201,7 +201,7 @@ class ClaudeEngine:
     the in-memory simulation state.
     """
 
-    def __init__(self, client: ClaudeClient, agent_system_template: str):
+    def __init__(self, client: LLMClient, agent_system_template: str):
         self.client = client
         self.agent_system_template = agent_system_template
         self.state: SimulationState | None = None

@@ -6,7 +6,7 @@ from typing import Any
 
 from jinja2 import Template
 
-from forkcast.llm.client import ClaudeClient
+from forkcast.llm.client import LLMClient
 from forkcast.llm.utils import strip_code_fences
 from forkcast.simulation.models import AgentProfile, SimulationConfig
 
@@ -36,7 +36,7 @@ def _clamp(value: int | float, minimum: int | float, maximum: int | float) -> in
 
 
 def generate_config(
-    client: ClaudeClient,
+    client: LLMClient,
     profiles: list[AgentProfile],
     requirement: str,
     config_template: str,

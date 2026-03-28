@@ -13,7 +13,7 @@ from forkcast.db.connection import get_db
 from forkcast.db.queries import get_project_domain
 from forkcast.domains.loader import load_domain, read_prompt
 from forkcast.graph.graph_store import load_graph
-from forkcast.llm.client import ClaudeClient
+from forkcast.llm.client import LLMClient
 from forkcast.report.models import ReportResult, ToolContext
 from forkcast.report.tools import REPORT_TOOLS, execute_tool
 from forkcast.simulation.models import AgentProfile
@@ -199,7 +199,7 @@ def generate_report(
     db_path: Path,
     data_dir: Path,
     simulation_id: str,
-    client: ClaudeClient,
+    client: LLMClient,
     domains_dir: Path,
     max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS,
     on_progress: Callable | None = None,
