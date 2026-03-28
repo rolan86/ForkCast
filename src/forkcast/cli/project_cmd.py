@@ -11,7 +11,7 @@ import typer
 from forkcast.config import get_settings
 from forkcast.db.connection import get_db
 from forkcast.graph.pipeline import build_graph_pipeline
-from forkcast.llm.client import ClaudeClient
+from forkcast.llm.factory import create_llm_client
 
 project_app = typer.Typer(help="Manage projects", no_args_is_help=True)
 
@@ -118,7 +118,11 @@ def project_show(project_id: str):
 
 
 @project_app.command("build-graph")
-def project_build_graph(project_id: str):
+def project_build_graph(
+    project_id: str,
+    provider: Annotated[str | None, typer.Option("--provider", help="LLM provider (claude or ollama)")] = None,
+    model: Annotated[str | None, typer.Option("--model", help="Override default model")] = None,
+):
     """Build a knowledge graph from project documents."""
     settings = get_settings()
 
@@ -132,7 +136,18 @@ def project_build_graph(project_id: str):
         raise typer.Exit(code=1)
 
     typer.echo(f"Building graph for project {project_id}...")
-    client = ClaudeClient(api_key=settings.anthropic_api_key)
+    client = create_llm_client(
+        provider=provider or settings.llm_provider,
+        api_key=settings.anthropic_api_key,
+        ollama_base_url=settings.ollama_base_url,
+        ollama_model=model or settings.ollama_model,
+    )
+    if (provider or settings.llm_provider) == "ollama":
+        typer.echo(
+            f"⚠ Using local model ({model or settings.ollama_model} via Ollama). "
+            "Quality may vary. Use --provider claude for production results.",
+            err=True,
+        )
 
     def on_progress(stage: str, **kwargs):
         current = kwargs.get("current", "")

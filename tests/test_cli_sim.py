@@ -146,7 +146,7 @@ class TestSimPrepare:
         with (
             patch("forkcast.cli.sim_cmd.get_settings") as mock_settings,
             patch("forkcast.cli.sim_cmd.prepare_simulation", return_value=mock_result) as mock_prepare,
-            patch("forkcast.cli.sim_cmd.ClaudeClient"),
+            patch("forkcast.cli.sim_cmd.create_llm_client"),
         ):
             settings = MagicMock()
             settings.db_path = tmp_db_path

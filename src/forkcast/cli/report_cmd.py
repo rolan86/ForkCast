@@ -7,17 +7,32 @@ import typer
 
 from forkcast.config import get_settings
 from forkcast.db.connection import get_db
-from forkcast.llm.client import ClaudeClient
+from forkcast.llm.factory import create_llm_client
 from forkcast.report.pipeline import generate_report
 
 report_app = typer.Typer(help="Manage prediction reports", no_args_is_help=True)
 
 
 @report_app.command("generate")
-def report_generate(simulation_id: str):
+def report_generate(
+    simulation_id: str,
+    provider: Annotated[str | None, typer.Option("--provider", help="LLM provider (claude or ollama)")] = None,
+    model: Annotated[str | None, typer.Option("--model", help="Override default model")] = None,
+):
     """Generate a report for a completed simulation."""
     settings = get_settings()
-    client = ClaudeClient(api_key=settings.anthropic_api_key)
+    client = create_llm_client(
+        provider=provider or settings.llm_provider,
+        api_key=settings.anthropic_api_key,
+        ollama_base_url=settings.ollama_base_url,
+        ollama_model=model or settings.ollama_model,
+    )
+    if (provider or settings.llm_provider) == "ollama":
+        typer.echo(
+            f"⚠ Using local model ({model or settings.ollama_model} via Ollama). "
+            "Quality may vary. Use --provider claude for production results.",
+            err=True,
+        )
 
     typer.echo(f"Generating report for simulation {simulation_id}...")
 

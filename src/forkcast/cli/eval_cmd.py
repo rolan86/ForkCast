@@ -20,6 +20,8 @@ def eval_run(
     simulation_id: Annotated[str | None, typer.Option("--simulation-id", help="Simulation ID (default: latest)")] = None,
     report_id: Annotated[str | None, typer.Option("--report-id", help="Report ID (default: latest)")] = None,
     gates_only: Annotated[bool, typer.Option("--gates-only", help="Skip LLM quality judgments")] = False,
+    provider: Annotated[str | None, typer.Option("--provider", help="LLM provider (claude or ollama)")] = None,
+    model: Annotated[str | None, typer.Option("--model", help="Override default model")] = None,
 ):
     """Run evaluation on a completed simulation and report."""
     settings = get_settings()
@@ -40,8 +42,19 @@ def eval_run(
     client = None
     if not gates_only:
         try:
-            from forkcast.llm.client import ClaudeClient
-            client = ClaudeClient(api_key=settings.anthropic_api_key)
+            from forkcast.llm.factory import create_llm_client
+            client = create_llm_client(
+                provider=provider or settings.llm_provider,
+                api_key=settings.anthropic_api_key,
+                ollama_base_url=settings.ollama_base_url,
+                ollama_model=model or settings.ollama_model,
+            )
+            if (provider or settings.llm_provider) == "ollama":
+                typer.echo(
+                    f"⚠ Using local model ({model or settings.ollama_model} via Ollama). "
+                    "Quality may vary. Use --provider claude for production results.",
+                    err=True,
+                )
         except Exception as exc:
             typer.echo(f"Warning: Could not create LLM client ({exc}), running gates only", err=True)
             gates_only = True

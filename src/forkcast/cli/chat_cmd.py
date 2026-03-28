@@ -1,22 +1,38 @@
 """CLI commands for interactive chat."""
 
 import sys
+from typing import Annotated
 
 import typer
 
 from forkcast.config import get_settings
-from forkcast.llm.client import ClaudeClient
+from forkcast.llm.factory import create_llm_client
 
 chat_app = typer.Typer(help="Chat with report agent or simulation agents", no_args_is_help=True)
 
 
 @chat_app.command("report")
-def chat_report(report_id: str):
+def chat_report(
+    report_id: str,
+    provider: Annotated[str | None, typer.Option("--provider", help="LLM provider (claude or ollama)")] = None,
+    model: Annotated[str | None, typer.Option("--model", help="Override default model")] = None,
+):
     """Interactive chat with the report agent about a generated report."""
     from forkcast.report.chat import report_chat
 
     settings = get_settings()
-    client = ClaudeClient(api_key=settings.anthropic_api_key)
+    client = create_llm_client(
+        provider=provider or settings.llm_provider,
+        api_key=settings.anthropic_api_key,
+        ollama_base_url=settings.ollama_base_url,
+        ollama_model=model or settings.ollama_model,
+    )
+    if (provider or settings.llm_provider) == "ollama":
+        typer.echo(
+            f"⚠ Using local model ({model or settings.ollama_model} via Ollama). "
+            "Quality may vary. Use --provider claude for production results.",
+            err=True,
+        )
 
     typer.echo(f"Chatting with report agent (report {report_id}). Type 'exit' to quit.\n")
 
@@ -49,12 +65,28 @@ def chat_report(report_id: str):
 
 
 @chat_app.command("agent")
-def chat_agent(simulation_id: str, agent_id: int):
+def chat_agent(
+    simulation_id: str,
+    agent_id: int,
+    provider: Annotated[str | None, typer.Option("--provider", help="LLM provider (claude or ollama)")] = None,
+    model: Annotated[str | None, typer.Option("--model", help="Override default model")] = None,
+):
     """Interactive chat with a simulation agent in character."""
     from forkcast.report.agent_chat import agent_chat
 
     settings = get_settings()
-    client = ClaudeClient(api_key=settings.anthropic_api_key)
+    client = create_llm_client(
+        provider=provider or settings.llm_provider,
+        api_key=settings.anthropic_api_key,
+        ollama_base_url=settings.ollama_base_url,
+        ollama_model=model or settings.ollama_model,
+    )
+    if (provider or settings.llm_provider) == "ollama":
+        typer.echo(
+            f"⚠ Using local model ({model or settings.ollama_model} via Ollama). "
+            "Quality may vary. Use --provider claude for production results.",
+            err=True,
+        )
 
     typer.echo(f"Chatting with agent {agent_id} from simulation {simulation_id}. Type 'exit' to quit.\n")
 

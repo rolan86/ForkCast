@@ -11,7 +11,7 @@ from forkcast.config import get_settings
 from forkcast.db.connection import get_db
 from forkcast.db.queries import get_project_domain
 from forkcast.domains.loader import load_domain
-from forkcast.llm.client import ClaudeClient
+from forkcast.llm.factory import create_llm_client
 from forkcast.simulation.prepare import prepare_simulation
 
 sim_app = typer.Typer(help="Manage simulations", no_args_is_help=True)
@@ -72,7 +72,11 @@ def sim_create(
 
 
 @sim_app.command("prepare")
-def sim_prepare(simulation_id: str):
+def sim_prepare(
+    simulation_id: str,
+    provider: Annotated[str | None, typer.Option("--provider", help="LLM provider (claude or ollama)")] = None,
+    model: Annotated[str | None, typer.Option("--model", help="Override default model")] = None,
+):
     """Prepare a simulation (generate profiles + config)."""
     settings = get_settings()
 
@@ -86,7 +90,18 @@ def sim_prepare(simulation_id: str):
         raise typer.Exit(code=1)
 
     typer.echo(f"Preparing simulation {simulation_id}...")
-    client = ClaudeClient(api_key=settings.anthropic_api_key)
+    client = create_llm_client(
+        provider=provider or settings.llm_provider,
+        api_key=settings.anthropic_api_key,
+        ollama_base_url=settings.ollama_base_url,
+        ollama_model=model or settings.ollama_model,
+    )
+    if (provider or settings.llm_provider) == "ollama":
+        typer.echo(
+            f"⚠ Using local model ({model or settings.ollama_model} via Ollama). "
+            "Quality may vary. Use --provider claude for production results.",
+            err=True,
+        )
 
     def on_progress(stage: str, **kwargs):
         current = kwargs.get("current", "")
@@ -171,6 +186,8 @@ def sim_show(simulation_id: str):
 def sim_start(
     simulation_id: str,
     max_rounds: Annotated[int | None, typer.Option(help="Maximum rounds to run")] = None,
+    provider: Annotated[str | None, typer.Option("--provider", help="LLM provider (claude or ollama)")] = None,
+    model: Annotated[str | None, typer.Option("--model", help="Override default model")] = None,
 ):
     """Start running a prepared simulation."""
     settings = get_settings()
@@ -190,7 +207,18 @@ def sim_start(
         raise typer.Exit(code=1)
 
     typer.echo(f"Starting simulation {simulation_id} (engine: {sim['engine_type']})...")
-    client = ClaudeClient(api_key=settings.anthropic_api_key)
+    client = create_llm_client(
+        provider=provider or settings.llm_provider,
+        api_key=settings.anthropic_api_key,
+        ollama_base_url=settings.ollama_base_url,
+        ollama_model=model or settings.ollama_model,
+    )
+    if (provider or settings.llm_provider) == "ollama":
+        typer.echo(
+            f"⚠ Using local model ({model or settings.ollama_model} via Ollama). "
+            "Quality may vary. Use --provider claude for production results.",
+            err=True,
+        )
 
     def on_progress(stage: str, **kwargs):
         if stage == "round":
