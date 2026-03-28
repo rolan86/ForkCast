@@ -213,7 +213,7 @@ class TestFullPipelineE2E:
             assert any(s["id"] == sim_id for s in sims)
 
             # Trigger prepare (mocked)
-            with patch("forkcast.api.simulation_routes.ClaudeClient"):
+            with patch("forkcast.api.simulation_routes.create_llm_client"):
                 with patch("forkcast.api.simulation_routes.prepare_simulation"):
                     prep_resp = await client.post(f"/api/simulations/{sim_id}/prepare")
 

@@ -77,7 +77,7 @@ class TestStartSimulation:
         sim_id = _insert_prepared_simulation(tmp_db_path, tmp_data_dir)
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            with patch("forkcast.api.simulation_routes.ClaudeClient"):
+            with patch("forkcast.api.simulation_routes.create_llm_client"):
                 with patch("forkcast.api.simulation_routes.run_simulation"):
                     resp = await client.post(f"/api/simulations/{sim_id}/start")
 
@@ -100,7 +100,7 @@ class TestStartSimulation:
             conn.execute("UPDATE simulations SET status = 'created' WHERE id = ?", (sim_id,))
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            with patch("forkcast.api.simulation_routes.ClaudeClient"):
+            with patch("forkcast.api.simulation_routes.create_llm_client"):
                 resp = await client.post(f"/api/simulations/{sim_id}/start")
         assert resp.status_code == 400
 

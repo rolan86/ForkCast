@@ -73,7 +73,7 @@ def _setup_prepared_sim(db_path, data_dir, domains_dir):
 
 class TestSimStart:
     @patch("forkcast.cli.sim_cmd.get_settings")
-    @patch("forkcast.cli.sim_cmd.ClaudeClient")
+    @patch("forkcast.cli.sim_cmd.create_llm_client")
     def test_start_succeeds(self, mock_client_cls, mock_settings, tmp_data_dir, tmp_db_path, tmp_domains_dir):
         sim_id = _setup_prepared_sim(tmp_db_path, tmp_data_dir, tmp_domains_dir)
 
@@ -126,7 +126,7 @@ class TestSimStart:
         assert result.exit_code == 1
 
     @patch("forkcast.cli.sim_cmd.get_settings")
-    @patch("forkcast.cli.sim_cmd.ClaudeClient")
+    @patch("forkcast.cli.sim_cmd.create_llm_client")
     def test_start_with_max_rounds(self, mock_client_cls, mock_settings, tmp_data_dir, tmp_db_path, tmp_domains_dir):
         sim_id = _setup_prepared_sim(tmp_db_path, tmp_data_dir, tmp_domains_dir)
 
