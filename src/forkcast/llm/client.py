@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 """Claude API client wrapper with retry, usage tracking, and multiple calling modes."""
 
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Iterator
+from typing import Any, Iterator, Protocol
 
 import anthropic
 
@@ -13,6 +15,18 @@ DEFAULT_MODEL = "claude-sonnet-4-6"
 DEFAULT_MAX_TOKENS = 4096
 MAX_RETRIES = 3
 RETRY_DELAY = 1.0
+
+
+class LLMClient(Protocol):
+    """LLM provider interface. Structural typing only — not @runtime_checkable."""
+
+    default_model: str
+
+    def complete(self, messages, system=None, model=None, max_tokens=4096, temperature=1.0) -> LLMResponse: ...
+    def tool_use(self, messages, tools, system=None, model=None, max_tokens=4096, temperature=1.0) -> LLMResponse: ...
+    def think(self, messages, thinking_budget=10000, system=None, model=None, max_tokens=16000) -> LLMResponse: ...
+    def smart_call(self, model, messages, system=None, thinking_budget=8000, **kwargs) -> LLMResponse: ...
+    def stream(self, messages, system=None, tools=None, model=None, max_tokens=4096, temperature=1.0) -> Iterator[StreamEvent]: ...
 
 
 def _model_supports_thinking(model: str) -> bool:

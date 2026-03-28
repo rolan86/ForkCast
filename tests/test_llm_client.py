@@ -64,3 +64,13 @@ def test_client_default_model():
 
     client = ClaudeClient(api_key="test-key")
     assert "claude" in client.default_model
+
+
+def test_claude_client_satisfies_llm_protocol():
+    """ClaudeClient structurally satisfies LLMClient Protocol."""
+    from forkcast.llm.client import LLMClient, ClaudeClient
+    # Protocol structural check — verify all required methods exist
+    required_methods = ["complete", "tool_use", "think", "smart_call", "stream"]
+    for method in required_methods:
+        assert hasattr(ClaudeClient, method), f"ClaudeClient missing {method}"
+    assert hasattr(ClaudeClient, "default_model")
