@@ -1,0 +1,237 @@
+"""Ollama LLM client using OpenAI-compatible API."""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from typing import Any, Iterator
+
+import openai
+
+from forkcast.llm.client import LLMResponse, MAX_RETRIES, RETRY_DELAY
+
+logger = logging.getLogger(__name__)
+
+
+class OllamaClient:
+    """LLM client for Ollama via OpenAI-compatible /v1 endpoint."""
+
+    def __init__(self, base_url: str = "http://localhost:11434/v1", default_model: str = "llama3.1"):
+        self.default_model = default_model
+        self._base_url = base_url
+        self._client = openai.OpenAI(base_url=base_url, api_key="ollama")
+
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        system: str | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        temperature: float = 1.0,
+    ) -> LLMResponse:
+        """Standard completion."""
+        return self._call(
+            messages=self._prepend_system(messages, system),
+            model=model or self.default_model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+    def tool_use(
+        self,
+        messages: list[dict[str, str]],
+        tools: list[dict[str, Any]],
+        system: str | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        temperature: float = 1.0,
+    ) -> LLMResponse:
+        """Call with tools, falling back to structured prompting if unsupported."""
+        openai_tools = self._translate_tools(tools)
+        try:
+            response = self._call(
+                messages=self._prepend_system(messages, system),
+                model=model or self.default_model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                tools=openai_tools,
+            )
+            # If tools were requested but none returned, try structured fallback
+            if not response.tool_calls and tools:
+                return self._structured_tool_fallback(messages, tools, system, model, max_tokens, temperature)
+            return response
+        except openai.BadRequestError as e:
+            if "does not support tools" in str(e) or "tool_use is not supported" in str(e):
+                logger.info("Model does not support tools, falling back to structured prompting")
+                return self._structured_tool_fallback(messages, tools, system, model, max_tokens, temperature)
+            raise
+
+    def think(
+        self,
+        messages: list[dict[str, str]],
+        thinking_budget: int = 10000,
+        system: str | None = None,
+        model: str | None = None,
+        max_tokens: int = 16000,
+    ) -> LLMResponse:
+        """No extended thinking — delegates to complete()."""
+        logger.debug("Ollama does not support extended thinking, delegating to complete()")
+        return self.complete(messages=messages, system=system, model=model, max_tokens=max_tokens)
+
+    def smart_call(
+        self,
+        model: str,
+        messages: list[dict[str, str]],
+        system: str | None = None,
+        thinking_budget: int = 8000,
+        **kwargs,
+    ) -> LLMResponse:
+        """Always routes to complete() — no Ollama model supports thinking."""
+        return self.complete(messages=messages, system=system, model=model, **kwargs)
+
+    def stream(
+        self,
+        messages: list[dict[str, Any]],
+        system: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        temperature: float = 1.0,
+    ) -> Iterator:
+        """Stream a response, yielding StreamEvent objects."""
+        from forkcast.report.models import StreamEvent
+
+        kwargs: dict[str, Any] = {
+            "model": model or self.default_model,
+            "messages": self._prepend_system(messages, system),
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,
+        }
+        if tools:
+            kwargs["tools"] = self._translate_tools(tools)
+
+        try:
+            stream = self._client.chat.completions.create(**kwargs)
+        except openai.APIConnectionError:
+            raise ConnectionError(
+                f"Cannot connect to Ollama at {self._base_url}. "
+                "Is Ollama running? Start it with: ollama serve"
+            )
+
+        for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            if delta.content:
+                yield StreamEvent(type="text_delta", data=delta.content)
+
+        yield StreamEvent(type="done", data={"stop_reason": "end_turn"})
+
+    # --- Private helpers ---
+
+    def _prepend_system(self, messages: list[dict], system: str | None) -> list[dict]:
+        """Prepend system message to messages list (OpenAI format)."""
+        if system:
+            return [{"role": "system", "content": system}] + list(messages)
+        return list(messages)
+
+    def _translate_tools(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Translate Anthropic tool schema to OpenAI function-calling format."""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t.get("description", ""),
+                    "parameters": t.get("input_schema", {}),
+                },
+            }
+            for t in tools
+        ]
+
+    def _structured_tool_fallback(
+        self, messages, tools, system, model, max_tokens, temperature
+    ) -> LLMResponse:
+        """Fall back to structured prompting when native tool use unavailable."""
+        tool_descriptions = "\n".join(
+            f"{i+1}. {t['name']}: {t.get('description', '')}"
+            for i, t in enumerate(tools)
+        )
+        fallback_system = (
+            f"{system or ''}\n\n"
+            f"You have these tools available:\n{tool_descriptions}\n\n"
+            "To use a tool, respond with ONLY a JSON object: "
+            '{"name": "tool_name", "input": {...}}\n'
+            "Do not include any other text."
+        ).strip()
+
+        response = self.complete(
+            messages=messages,
+            system=fallback_system,
+            model=model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+        # Try to parse tool call from response text
+        try:
+            parsed = json.loads(response.text.strip())
+            if isinstance(parsed, dict) and "name" in parsed:
+                response.tool_calls = [{
+                    "id": "fallback_1",
+                    "name": parsed["name"],
+                    "input": parsed.get("input", {}),
+                }]
+                response.text = ""
+        except (json.JSONDecodeError, KeyError):
+            pass  # Return as plain text if not parseable
+
+        return response
+
+    def _call(self, **kwargs: Any) -> LLMResponse:
+        """Internal method with retry logic."""
+        last_error = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = self._client.chat.completions.create(**kwargs)
+                return self._parse_response(response)
+            except openai.APIConnectionError:
+                raise ConnectionError(
+                    f"Cannot connect to Ollama at {self._base_url}. "
+                    "Is Ollama running? Start it with: ollama serve"
+                )
+            except openai.BadRequestError:
+                raise  # Don't retry bad requests — caller handles these
+            except openai.APIError as e:
+                last_error = e
+                wait = RETRY_DELAY * (2 ** attempt)
+                logger.warning(f"Ollama API error, retrying in {wait}s (attempt {attempt + 1}): {e}")
+                time.sleep(wait)
+
+        raise last_error  # type: ignore[misc]
+
+    def _parse_response(self, response: Any) -> LLMResponse:
+        """Parse OpenAI API response into LLMResponse."""
+        choice = response.choices[0]
+        text = choice.message.content or ""
+        tool_calls = []
+
+        if choice.message.tool_calls:
+            for tc in choice.message.tool_calls:
+                tool_calls.append({
+                    "id": tc.id,
+                    "name": tc.function.name,
+                    "input": json.loads(tc.function.arguments),
+                })
+
+        return LLMResponse(
+            text=text,
+            tool_calls=tool_calls,
+            input_tokens=getattr(response.usage, "prompt_tokens", 0),
+            output_tokens=getattr(response.usage, "completion_tokens", 0),
+            model=getattr(response, "model", self.default_model),
+            stop_reason=choice.finish_reason or "",
+            raw=response,
+        )
