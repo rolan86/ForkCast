@@ -16,7 +16,7 @@ from forkcast.api.responses import error, success
 from forkcast.config import get_settings
 from forkcast.db.connection import get_db
 from forkcast.domains.loader import load_domain
-from forkcast.llm.client import ClaudeClient
+from forkcast.llm.factory import create_llm_client
 from forkcast.simulation.prepare import find_reusable_profiles, prepare_simulation
 from forkcast.simulation.runner import run_simulation
 
@@ -288,7 +288,12 @@ async def trigger_prepare(simulation_id: str, req: PrepareRequest | None = None)
     _prepare_queues[simulation_id] = queue
     loop = asyncio.get_running_loop()
 
-    client = ClaudeClient(api_key=settings.anthropic_api_key)
+    client = create_llm_client(
+        provider=settings.llm_provider,
+        api_key=settings.anthropic_api_key,
+        ollama_base_url=settings.ollama_base_url,
+        ollama_model=settings.ollama_model,
+    )
 
     def on_progress(stage: str, **kwargs):
         event = {"stage": stage, **kwargs}
@@ -389,7 +394,12 @@ async def start_simulation(simulation_id: str):
     _stop_events[simulation_id] = stop_event
     loop = asyncio.get_running_loop()
 
-    client = ClaudeClient(api_key=settings.anthropic_api_key)
+    client = create_llm_client(
+        provider=settings.llm_provider,
+        api_key=settings.anthropic_api_key,
+        ollama_base_url=settings.ollama_base_url,
+        ollama_model=settings.ollama_model,
+    )
 
     def on_progress(stage: str, **kwargs):
         event = {"stage": stage, **kwargs}

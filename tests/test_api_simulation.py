@@ -96,7 +96,7 @@ class TestTriggerPrepare:
             create_resp = await client.post("/api/simulations", json={"project_id": project_id})
             sim_id = create_resp.json()["data"]["id"]
 
-            with patch("forkcast.api.simulation_routes.ClaudeClient"):
+            with patch("forkcast.api.simulation_routes.create_llm_client"):
                 with patch("forkcast.api.simulation_routes.prepare_simulation"):
                     response = await client.post(f"/api/simulations/{sim_id}/prepare")
 

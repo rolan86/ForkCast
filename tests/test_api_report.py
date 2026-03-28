@@ -105,7 +105,7 @@ class TestGenerateReport:
         _insert_project_sim(tmp_db_path)
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            with patch("forkcast.api.report_routes.ClaudeClient"):
+            with patch("forkcast.api.report_routes.create_llm_client"):
                 with patch("forkcast.api.report_routes.generate_report") as mock_gen:
                     mock_gen.return_value = MagicMock(
                         report_id="report_generated",
@@ -182,7 +182,7 @@ class TestChatReport:
     async def test_chat_report_not_found(self, app):
         """POST /api/chat/report with bad report_id returns error event in SSE stream."""
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            with patch("forkcast.api.report_routes.ClaudeClient"):
+            with patch("forkcast.api.report_routes.create_llm_client"):
                 response = await client.post(
                     "/api/chat/report",
                     json={"report_id": "nonexistent_report", "message": "Hello"},
@@ -206,7 +206,7 @@ class TestChatReport:
         ]
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            with patch("forkcast.api.report_routes.ClaudeClient"):
+            with patch("forkcast.api.report_routes.create_llm_client"):
                 with patch("forkcast.api.report_routes.report_chat", return_value=iter(mock_events)):
                     response = await client.post(
                         "/api/chat/report",
@@ -223,7 +223,7 @@ class TestChatAgent:
         _insert_project_sim(tmp_db_path)
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            with patch("forkcast.api.report_routes.ClaudeClient"):
+            with patch("forkcast.api.report_routes.create_llm_client"):
                 response = await client.post(
                     "/api/chat/agent",
                     json={
@@ -241,7 +241,7 @@ class TestChatAgent:
     async def test_chat_agent_sim_not_found(self, app):
         """POST /api/chat/agent with nonexistent sim returns 404."""
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            with patch("forkcast.api.report_routes.ClaudeClient"):
+            with patch("forkcast.api.report_routes.create_llm_client"):
                 response = await client.post(
                     "/api/chat/agent",
                     json={

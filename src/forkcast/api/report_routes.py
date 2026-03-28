@@ -14,7 +14,7 @@ from sse_starlette.sse import EventSourceResponse
 from forkcast.api.responses import error, success
 from forkcast.config import get_settings
 from forkcast.db.connection import get_db
-from forkcast.llm.client import ClaudeClient
+from forkcast.llm.factory import create_llm_client
 from forkcast.report.agent_chat import agent_chat
 from forkcast.report.chat import report_chat
 from forkcast.report.pipeline import generate_report
@@ -95,7 +95,12 @@ async def generate_report_endpoint(req: GenerateReportRequest):
     _generate_queues[report_id] = queue
     loop = asyncio.get_running_loop()
 
-    client = ClaudeClient(api_key=settings.anthropic_api_key)
+    client = create_llm_client(
+        provider=settings.llm_provider,
+        api_key=settings.anthropic_api_key,
+        ollama_base_url=settings.ollama_base_url,
+        ollama_model=settings.ollama_model,
+    )
 
     async def _run():
         try:
@@ -208,7 +213,12 @@ async def get_report(report_id: str):
 async def chat_with_report(req: ChatReportRequest):
     """SSE stream of report_chat() events."""
     settings = get_settings()
-    client = ClaudeClient(api_key=settings.anthropic_api_key)
+    client = create_llm_client(
+        provider=settings.llm_provider,
+        api_key=settings.anthropic_api_key,
+        ollama_base_url=settings.ollama_base_url,
+        ollama_model=settings.ollama_model,
+    )
 
     report_id = req.report_id
     message = req.message
@@ -256,7 +266,12 @@ async def chat_with_agent(req: ChatAgentRequest):
     if sim is None:
         return error(f"Simulation not found: {req.simulation_id}", status_code=404)
 
-    client = ClaudeClient(api_key=settings.anthropic_api_key)
+    client = create_llm_client(
+        provider=settings.llm_provider,
+        api_key=settings.anthropic_api_key,
+        ollama_base_url=settings.ollama_base_url,
+        ollama_model=settings.ollama_model,
+    )
 
     simulation_id = req.simulation_id
     agent_id = req.agent_id

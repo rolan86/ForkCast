@@ -13,7 +13,7 @@ from forkcast.api.responses import error, success
 from forkcast.config import get_settings
 from forkcast.db.connection import get_db
 from forkcast.graph.pipeline import build_graph_pipeline
-from forkcast.llm.client import ClaudeClient
+from forkcast.llm.factory import create_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,12 @@ async def trigger_build_graph(project_id: str):
     if project is None:
         return error(f"Project not found: {project_id}", status_code=404)
 
-    client = ClaudeClient(api_key=settings.anthropic_api_key)
+    client = create_llm_client(
+        provider=settings.llm_provider,
+        api_key=settings.anthropic_api_key,
+        ollama_base_url=settings.ollama_base_url,
+        ollama_model=settings.ollama_model,
+    )
     queue = _progress_queues[project_id]
 
     def on_progress(stage: str, **kwargs):

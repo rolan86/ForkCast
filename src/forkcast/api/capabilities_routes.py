@@ -1,7 +1,7 @@
 """Capabilities endpoint — reports available engines and models."""
 from fastapi import APIRouter
 from forkcast.api.responses import success
-from forkcast.config import AVAILABLE_MODELS
+from forkcast.config import get_settings, get_available_models
 
 router = APIRouter(prefix="/api", tags=["capabilities"])
 
@@ -19,10 +19,11 @@ def _check_oasis() -> dict:
 
 @router.get("/capabilities")
 async def get_capabilities():
+    settings = get_settings()
     return success({
         "engines": {
             "claude": {"available": True},
             "oasis": _check_oasis(),
         },
-        "models": AVAILABLE_MODELS,
+        "models": get_available_models(settings),
     })
