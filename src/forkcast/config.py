@@ -40,6 +40,9 @@ class Settings:
     host: str = field(default_factory=lambda: _env("FORKCAST_HOST", "127.0.0.1"))
     port: int = field(default_factory=lambda: _env_int("FORKCAST_PORT", 5001))
     log_level: str = field(default_factory=lambda: _env("FORKCAST_LOG_LEVEL", "info"))
+    llm_provider: str = field(default_factory=lambda: _env("FORKCAST_LLM_PROVIDER", "claude"))
+    ollama_base_url: str = field(default_factory=lambda: _env("FORKCAST_OLLAMA_BASE_URL", "http://localhost:11434/v1"))
+    ollama_model: str = field(default_factory=lambda: _env("FORKCAST_OLLAMA_MODEL", "llama3.1"))
 
     @property
     def db_path(self) -> Path:
@@ -61,3 +64,21 @@ def reset_settings() -> None:
     """Reset singleton (for testing)."""
     global _settings
     _settings = None
+
+
+def get_available_models(settings: Settings | None = None) -> list[dict]:
+    """Return model list, adding Ollama model when provider is ollama.
+
+    Note: signature accepts Optional settings (defaults to get_settings()) for ergonomics.
+    This is an intentional improvement over the spec's required-param signature.
+    """
+    models = list(AVAILABLE_MODELS)
+    if settings is None:
+        settings = get_settings()
+    if settings.llm_provider == "ollama":
+        models.append({
+            "id": settings.ollama_model,
+            "label": f"{settings.ollama_model} (Ollama)",
+            "supports_thinking": False,
+        })
+    return models
