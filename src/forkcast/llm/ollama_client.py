@@ -60,6 +60,10 @@ class OllamaClient:
             # If tools were requested but none returned, try structured fallback
             if not response.tool_calls and tools:
                 return self._structured_tool_fallback(messages, tools, system, model, max_tokens, temperature)
+            # Validate tool call has the required keys from the schema
+            if response.tool_calls and tools and not self._validate_tool_response(response.tool_calls, tools):
+                logger.info("Native tool call has wrong keys, falling back to structured prompting")
+                return self._structured_tool_fallback(messages, tools, system, model, max_tokens, temperature)
             return response
         except openai.BadRequestError as e:
             if "does not support tools" in str(e) or "tool_use is not supported" in str(e):
@@ -151,20 +155,38 @@ class OllamaClient:
             for t in tools
         ]
 
+    def _validate_tool_response(self, tool_calls: list[dict], tools: list[dict]) -> bool:
+        """Check that tool call responses contain the required keys from the tool schema."""
+        tool_schemas = {t["name"]: t.get("input_schema", {}) for t in tools}
+        for tc in tool_calls:
+            schema = tool_schemas.get(tc.get("name", ""), {})
+            required_keys = set(schema.get("required", []))
+            if required_keys and not required_keys.issubset(set(tc.get("input", {}).keys())):
+                return False
+        return True
+
     def _structured_tool_fallback(
         self, messages, tools, system, model, max_tokens, temperature
     ) -> LLMResponse:
         """Fall back to structured prompting when native tool use unavailable."""
-        tool_descriptions = "\n".join(
-            f"{i+1}. {t['name']}: {t.get('description', '')}"
-            for i, t in enumerate(tools)
-        )
+        tool_sections = []
+        for i, t in enumerate(tools):
+            schema = t.get("input_schema", {})
+            schema_str = json.dumps(schema, indent=2)
+            tool_sections.append(
+                f"{i+1}. **{t['name']}**: {t.get('description', '')}\n"
+                f"   Expected JSON schema for \"input\":\n"
+                f"   ```json\n   {schema_str}\n   ```"
+            )
+        tool_block = "\n\n".join(tool_sections)
+
         fallback_system = (
             f"{system or ''}\n\n"
-            f"You have these tools available:\n{tool_descriptions}\n\n"
-            "To use a tool, respond with ONLY a JSON object: "
-            '{"name": "tool_name", "input": {...}}\n'
-            "Do not include any other text."
+            f"You have these tools available:\n\n{tool_block}\n\n"
+            "IMPORTANT: To use a tool, respond with ONLY a valid JSON object in this exact format:\n"
+            '{"name": "tool_name", "input": {<your data matching the schema above>}}\n\n'
+            "The \"input\" field MUST match the JSON schema shown above for the tool you choose. "
+            "Do not include any other text before or after the JSON."
         ).strip()
 
         response = self.complete(
@@ -176,8 +198,20 @@ class OllamaClient:
         )
 
         # Try to parse tool call from response text
+        text = response.text.strip()
+        # Strip markdown code fences if present (common with smaller models)
+        if text.startswith("```"):
+            lines = text.split("\n")
+            # Remove first line (```json or ```) and last line (```)
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            text = "\n".join(lines).strip()
+        # Extract JSON object if surrounded by extra text
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1:
+            text = text[start:end + 1]
         try:
-            parsed = json.loads(response.text.strip())
+            parsed = json.loads(text)
             if isinstance(parsed, dict) and "name" in parsed:
                 response.tool_calls = [{
                     "id": "fallback_1",
