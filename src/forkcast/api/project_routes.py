@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, UploadFile
+from pydantic import BaseModel
 
 from forkcast.api.responses import error, success
 from forkcast.config import get_settings
@@ -71,6 +72,88 @@ async def create_project(
             "domain": domain,
             "status": "created",
             "requirement": requirement,
+            "files": saved_files,
+            "created_at": now,
+        },
+        status_code=201,
+    )
+
+
+class InlineDocument(BaseModel):
+    filename: str
+    content: str
+
+
+class CreateProjectFromTextRequest(BaseModel):
+    domain: str
+    requirement: str
+    name: str | None = None
+    documents: list[InlineDocument] | None = None
+
+
+@router.post("/from-text")
+async def create_project_from_text(req: CreateProjectFromTextRequest):
+    """Create a new project with inline document content (JSON body)."""
+    settings = get_settings()
+
+    # Validate domain exists
+    domain_dir = settings.domains_dir / req.domain
+    if not domain_dir.is_dir():
+        return error(f"Domain not found: {req.domain}", status_code=400)
+
+    # Validate documents
+    if not req.documents:
+        return error("At least one document is required", status_code=400)
+    for doc in req.documents:
+        if not doc.filename.strip():
+            return error("Document filename must not be empty", status_code=400)
+        if not doc.content.strip():
+            return error("Document content must not be empty", status_code=400)
+
+    project_id = _generate_id()
+    project_name = req.name or f"Project {project_id[-6:]}"
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Create project directory and write files
+    project_dir = settings.data_dir / project_id
+    uploads_dir = project_dir / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+
+    saved_files = []
+    for doc in req.documents:
+        file_path = (uploads_dir / doc.filename).resolve()
+        if not str(file_path).startswith(str(uploads_dir.resolve())):
+            return error(f"Invalid filename: {doc.filename}", status_code=400)
+        file_path.write_text(doc.content, encoding="utf-8")
+        saved_files.append(
+            {
+                "filename": doc.filename,
+                "path": str(file_path),
+                "size": len(doc.content.encode("utf-8")),
+            }
+        )
+
+    # Insert into database
+    with get_db(settings.db_path) as conn:
+        conn.execute(
+            "INSERT INTO projects (id, domain, name, status, requirement, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (project_id, req.domain, project_name, "created", req.requirement, now),
+        )
+        for sf in saved_files:
+            conn.execute(
+                "INSERT INTO project_files (project_id, filename, path, size, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (project_id, sf["filename"], sf["path"], sf["size"], now),
+            )
+
+    return success(
+        {
+            "id": project_id,
+            "name": project_name,
+            "domain": req.domain,
+            "status": "created",
+            "requirement": req.requirement,
             "files": saved_files,
             "created_at": now,
         },
