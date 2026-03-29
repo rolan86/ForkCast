@@ -80,13 +80,17 @@ def generate_ontology(
         temperature=0.2,
     )
 
-    # Parse JSON from response, stripping any markdown code fences
+    # Parse JSON from response, handling markdown fences and extra text
     text = response.text.strip()
     if text.startswith("```"):
-        text = text.split("\n", 1)[1] if "\n" in text else text
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
+        lines = text.split("\n")
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        text = "\n".join(lines).strip()
+    # Extract the JSON object even if surrounded by extra text
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1:
+        text = text[start:end + 1]
 
     ontology = json.loads(text)
 
