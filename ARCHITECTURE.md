@@ -1,6 +1,6 @@
 # ForkCast — Technical Architecture
 
-**Version:** v0.8.0-phase7b | **Last updated:** 2026-03-23
+**Version:** v0.9.0 | **Last updated:** 2026-03-30
 
 ## System Overview
 
@@ -428,6 +428,7 @@ data/
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/projects` | Create project (multipart: domain, requirement, files) |
+| POST | `/api/projects/from-text` | Create project from inline text documents (JSON body) |
 | GET | `/api/projects` | List all projects |
 | GET | `/api/projects/{id}` | Get project details + files |
 
@@ -483,6 +484,47 @@ data/
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Service health check
+
+
+## External Integrations
+
+### SeedCast → ForkCast Bridge
+
+[SeedCast](../SeedCast) generates product concepts from internet signals and pushes survivors to ForkCast for stakeholder simulation via REST API.
+
+**Flow:**
+
+```
+SeedCast                                    ForkCast
+─────────                                   ────────
+forge push <run-id> --auto-simulate
+  │
+  ├─ Load concept brief (.md)
+  ├─ Generate 3 seed documents ──────────▶  POST /api/projects/from-text
+  │   (landscape, product overview,           └─ Creates project + writes files
+  │    context report)
+  │                                     ◀── { id: "proj_..." }
+  │
+  ├─ Build graph ────────────────────────▶  POST /api/projects/{id}/build-graph
+  │   (blocking — waits for completion)       └─ Extracts entities, builds graph
+  │
+  ├─ Create simulation ─────────────────▶  POST /api/simulations
+  │                                     ◀── { id: "sim_..." }
+  │
+  ├─ Prepare simulation ────────────────▶  POST /api/simulations/{id}/prepare
+  │   (fire-and-forget, polls status)         └─ Generates 20+ agent personas
+  │   GET /api/simulations/{id} ────────▶       (can take 30-45 min with Claude)
+  │
+  ├─ Run simulation ────────────────────▶  POST /api/simulations/{id}/start
+  │   (fire-and-forget, polls status)         └─ Multi-round agent simulation
+  │
+  └─ Generate report ───────────────────▶  POST /api/reports/generate
+      (fire-and-forget, polls status)         └─ Tool-use research + analysis
+```
+
+**Key endpoint:** `POST /api/projects/from-text` accepts `{ domain, requirement, name, documents: [{ filename, content }] }` and returns a project with files written to disk. This avoids SeedCast needing to do multipart file uploads.
+
+**Async pattern:** ForkCast's `prepare`, `start`, and `generate_report` are fire-and-forget (`asyncio.create_task`) — they return immediately. SeedCast polls `GET /api/simulations/{id}` and `GET /api/reports/{id}` to wait for completion.
 
 
 ## Graph Visualization System
