@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
 
-from forkcast.db.schema import MIGRATION_V1_TO_V2, MIGRATION_V2_TO_V3, MIGRATION_V3_TO_V4, MIGRATION_V4_TO_V5, SCHEMA_VERSION, TABLES_V1, TABLES_V5
+from forkcast.db.schema import MIGRATION_V1_TO_V2, MIGRATION_V2_TO_V3, MIGRATION_V3_TO_V4, MIGRATION_V4_TO_V5, MIGRATION_V5_TO_V6, SCHEMA_VERSION, TABLES_V1, TABLES_V6
 
 
 def init_db(db_path: Path) -> None:
@@ -22,7 +22,7 @@ def init_db(db_path: Path) -> None:
             pass  # meta table doesn't exist — fresh DB
 
         if existing_version is None:
-            conn.executescript(TABLES_V5)
+            conn.executescript(TABLES_V6)
             conn.execute(
                 "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
                 (str(SCHEMA_VERSION),),
@@ -43,6 +43,10 @@ def init_db(db_path: Path) -> None:
                 existing_version = 4
             if existing_version == 4:
                 conn.executescript(MIGRATION_V4_TO_V5)
+                conn.commit()
+                existing_version = 5
+            if existing_version == 5:
+                conn.executescript(MIGRATION_V5_TO_V6)
                 conn.commit()
     finally:
         conn.close()
