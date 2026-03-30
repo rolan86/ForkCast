@@ -140,3 +140,20 @@ async def test_create_project_from_text_invalid_domain(app):
 
     assert resp.status_code == 400
     assert "domain" in resp.json()["error"].lower()
+
+
+@pytest.mark.asyncio
+async def test_create_project_from_text_path_traversal(app):
+    """Should return 400 when filename attempts path traversal."""
+    payload = {
+        "domain": "_default",
+        "requirement": "Test question",
+        "documents": [{"filename": "../../../etc/passwd", "content": "malicious content"}],
+    }
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        resp = await client.post("/api/projects/from-text", json=payload)
+
+    assert resp.status_code == 400
+    assert "invalid filename" in resp.json()["error"].lower()
