@@ -13,6 +13,8 @@ AVAILABLE_MODELS = [
     {"id": "claude-sonnet-4-6", "label": "Sonnet 4.6 (balanced)", "supports_thinking": True},
 ]
 
+DEFAULT_PREP_MODEL = "claude-haiku-4-5"
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
