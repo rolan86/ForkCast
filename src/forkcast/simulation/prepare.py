@@ -11,7 +11,8 @@ from forkcast.domains.loader import load_domain, read_prompt
 from forkcast.llm.client import LLMClient
 from forkcast.simulation.config_generator import generate_config
 from forkcast.simulation.models import AgentProfile, PrepareResult
-from forkcast.simulation.profile_generator import generate_profiles
+from forkcast.config import DEFAULT_PREP_MODEL
+from forkcast.simulation.profile_generator import generate_profiles_batched
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,7 @@ def prepare_simulation(
 
     # Use prep_model from DB if not passed explicitly
     if prep_model is None:
-        prep_model = sim["prep_model"] if sim["prep_model"] else None
+        prep_model = sim["prep_model"] if sim["prep_model"] else DEFAULT_PREP_MODEL
 
     with get_db(db_path) as conn:
         project = conn.execute(
@@ -122,7 +123,7 @@ def prepare_simulation(
 
     # 3. Load domain and prompt templates
     domain = load_domain(project["domain"], domains_dir)
-    persona_template = read_prompt(domain, "persona")
+    persona_batch_template = read_prompt(domain, "persona_batch")
     config_template = read_prompt(domain, "config_generation")
 
     # 4. Generate profiles (with reuse and incremental saving for recovery)
@@ -148,19 +149,21 @@ def prepare_simulation(
         # Load reused profiles as AgentProfile objects
         reused_data = json.loads((profiles_dir / "agents.json").read_text(encoding="utf-8"))
         profiles = [AgentProfile(**p) for p in reused_data]
-        profile_tokens = {"input": 0, "output": 0}
+        profile_token_records = []
     else:
         _progress("generating_profiles", total=len(entities))
-        profiles, profile_tokens = generate_profiles(
+
+        def _profile_progress(stage: str, **kwargs: Any) -> None:
+            _progress(stage, **kwargs)
+
+        profiles, profile_token_records = generate_profiles_batched(
             client=client,
             entities=entities,
             graph_data=graph_data,
             requirement=project["requirement"],
-            persona_template=persona_template,
+            persona_batch_template=persona_batch_template,
             profiles_dir=profiles_dir,
-            on_progress=lambda current, total: _progress(
-                "generating_profiles", current=current, total=total
-            ),
+            on_progress=_profile_progress,
             model=prep_model,
         )
     profiles_path = profiles_dir / "agents.json"
@@ -176,7 +179,7 @@ def prepare_simulation(
         profiles=profiles,
         requirement=project["requirement"],
         config_template=config_template,
-        model=prep_model,
+        model=None,  # Config gen always uses client.default_model (Sonnet) with thinking
         user_total_hours=user_total_hours,
         user_minutes_per_round=user_minutes_per_round,
     )
@@ -190,15 +193,25 @@ def prepare_simulation(
             (config_json, simulation_id),
         )
 
-    # 7. Log token usage
-    total_input = profile_tokens["input"] + config_tokens["input"]
-    total_output = profile_tokens["output"] + config_tokens["output"]
+    # 7. Log token usage per batch
     with get_db(db_path) as conn:
+        for batch_idx, tokens in enumerate(profile_token_records):
+            conn.execute(
+                "INSERT INTO token_usage (project_id, simulation_id, stage, model, input_tokens, output_tokens, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
+                (project_id, simulation_id, f"simulation_prep:profile_batch_{batch_idx + 1}",
+                 prep_model, tokens["input"], tokens["output"]),
+            )
         conn.execute(
-            "INSERT INTO token_usage (project_id, stage, model, input_tokens, output_tokens, created_at) "
-            "VALUES (?, 'simulation_prep', ?, ?, ?, datetime('now'))",
-            (project_id, str(client.default_model), total_input, total_output),
+            "INSERT INTO token_usage (project_id, simulation_id, stage, model, input_tokens, output_tokens, created_at) "
+            "VALUES (?, ?, 'simulation_prep:config', ?, ?, ?, datetime('now'))",
+            (project_id, simulation_id, str(client.default_model),
+             config_tokens["input"], config_tokens["output"]),
         )
+
+    # Compute totals for return value
+    total_input = sum(t["input"] for t in profile_token_records) + config_tokens["input"]
+    total_output = sum(t["output"] for t in profile_token_records) + config_tokens["output"]
 
     _progress("complete")
 

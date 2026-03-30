@@ -39,6 +39,25 @@ def _setup_project_and_sim(db_path, data_dir, status="created", sim_id="sim1", p
         )
 
 
+def _mock_profile_batch_json():
+    """Return JSON array of 1 profile for a single batch response."""
+    return json.dumps([
+        {"name": "Alice", "username": "alice", "bio": "b", "persona": "p",
+         "age": 30, "gender": "f", "profession": "dev", "interests": ["code"]},
+    ])
+
+
+def _mock_config_json():
+    return json.dumps({
+        "total_hours": 24, "minutes_per_round": 15,
+        "peak_hours": [10], "off_peak_hours": [2],
+        "peak_multiplier": 1.0, "off_peak_multiplier": 0.5,
+        "seed_posts": ["post"], "hot_topics": ["topic"],
+        "narrative_direction": "dir",
+        "agent_configs": [], "platform_config": {},
+    })
+
+
 class TestPrepareResume:
     def test_resume_skips_existing_profiles(self, tmp_db_path, tmp_data_dir, tmp_domains_dir):
         """A simulation in 'preparing' status with existing profiles resumes from where it left off."""
@@ -71,22 +90,15 @@ class TestPrepareResume:
 
         client = MagicMock()
         client.default_model = "claude-sonnet-4-6"
-        profile_json = json.dumps({
-            "name": "Alice", "username": "alice", "bio": "b", "persona": "p",
-            "age": 30, "gender": "f", "profession": "dev", "interests": ["code"],
-        })
-        config_json = json.dumps({
-            "total_hours": 24, "minutes_per_round": 15,
-            "peak_hours": [10], "off_peak_hours": [2],
-            "peak_multiplier": 1.0, "off_peak_multiplier": 0.5,
-            "seed_posts": ["post"], "hot_topics": ["topic"],
-            "narrative_direction": "dir",
-            "agent_configs": [], "platform_config": {},
-        })
-        client.smart_call.side_effect = [
-            LLMResponse(text=profile_json, input_tokens=100, output_tokens=50),
-            LLMResponse(text=config_json, input_tokens=200, output_tokens=100),
-        ]
+        # Profile batch (1 call via complete)
+        client.complete.return_value = LLMResponse(
+            text=_mock_profile_batch_json(),
+            input_tokens=100, output_tokens=50,
+        )
+        # Config gen (1 call via smart_call)
+        client.smart_call.return_value = LLMResponse(
+            text=_mock_config_json(), input_tokens=200, output_tokens=100,
+        )
 
         from forkcast.simulation.prepare import prepare_simulation
         result = prepare_simulation(
@@ -99,9 +111,13 @@ class TestPrepareResume:
 
         assert result.profiles_count == 1
         assert result.config_generated is True
-        # Verify smart_call was called with the haiku model from DB
-        for call in client.smart_call.call_args_list:
+        # Verify complete was called with the haiku model from DB (for profiles)
+        for call in client.complete.call_args_list:
             assert call.kwargs.get("model") == "claude-haiku-4-5"
+        # Config gen should use Sonnet (client.default_model), NOT haiku
+        for call in client.smart_call.call_args_list:
+            assert call.kwargs.get("model") != "claude-haiku-4-5"
+            assert call.kwargs.get("model") == "claude-sonnet-4-6"
 
     def test_prepare_force_regenerate_skips_reuse(self, tmp_db_path, tmp_data_dir, tmp_domains_dir):
         """force_regenerate=True should skip profile reuse even when reusable profiles exist."""
@@ -119,22 +135,15 @@ class TestPrepareResume:
 
         client = MagicMock()
         client.default_model = "claude-sonnet-4-6"
-        profile_json = json.dumps({
-            "name": "Alice", "username": "alice", "bio": "b", "persona": "p",
-            "age": 30, "gender": "f", "profession": "dev", "interests": ["code"],
-        })
-        config_json = json.dumps({
-            "total_hours": 24, "minutes_per_round": 15,
-            "peak_hours": [10], "off_peak_hours": [2],
-            "peak_multiplier": 1.0, "off_peak_multiplier": 0.5,
-            "seed_posts": ["post"], "hot_topics": ["topic"],
-            "narrative_direction": "dir",
-            "agent_configs": [], "platform_config": {},
-        })
-        client.smart_call.side_effect = [
-            LLMResponse(text=profile_json, input_tokens=100, output_tokens=50),
-            LLMResponse(text=config_json, input_tokens=200, output_tokens=100),
-        ]
+        # Profile batch (1 call via complete)
+        client.complete.return_value = LLMResponse(
+            text=_mock_profile_batch_json(),
+            input_tokens=100, output_tokens=50,
+        )
+        # Config gen (1 call via smart_call)
+        client.smart_call.return_value = LLMResponse(
+            text=_mock_config_json(), input_tokens=200, output_tokens=100,
+        )
 
         from forkcast.simulation.prepare import prepare_simulation
         result = prepare_simulation(
@@ -146,6 +155,7 @@ class TestPrepareResume:
             force_regenerate=True,
         )
 
-        # Should have called smart_call for profile + config (not reused)
-        assert client.smart_call.call_count == 2
+        # Should have called complete for profile batch + smart_call for config (not reused)
+        assert client.complete.call_count == 1
+        assert client.smart_call.call_count == 1
         assert result.profiles_count == 1

@@ -56,6 +56,12 @@ def tmp_domains_dir(tmp_path):
         "Create a persona for {{ entity_name }} ({{ entity_type }}).\n"
         "Scenario: {{ requirement }}\n"
     )
+    (prompts / "persona_batch.md").write_text(
+        "# Default persona batch\n\n"
+        "Generate {{ count }} personas for the following entities:\n"
+        "{% for e in entities %}{{ e.name }} ({{ e.type }})\n{% endfor %}\n"
+        "Scenario: {{ requirement }}\n"
+    )
 
     # Ontology hints
     ontology = default / "ontology"
