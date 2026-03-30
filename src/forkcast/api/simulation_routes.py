@@ -35,6 +35,7 @@ class CreateSimulationRequest(BaseModel):
     engine_type: str | None = None
     platforms: list[str] | None = None
     agent_mode: str | None = None  # "llm" or "native"
+    prep_model: str | None = None
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -91,9 +92,9 @@ async def create_simulation(req: CreateSimulationRequest):
 
     with get_db(settings.db_path) as conn:
         conn.execute(
-            "INSERT INTO simulations (id, project_id, graph_id, status, engine_type, platforms, agent_mode, created_at) "
-            "VALUES (?, ?, ?, 'created', ?, ?, ?, ?)",
-            (sim_id, req.project_id, graph_id, engine_type, json.dumps(platforms), agent_mode, now),
+            "INSERT INTO simulations (id, project_id, graph_id, status, engine_type, platforms, prep_model, agent_mode, created_at) "
+            "VALUES (?, ?, ?, 'created', ?, ?, ?, ?, ?)",
+            (sim_id, req.project_id, graph_id, engine_type, json.dumps(platforms), req.prep_model, agent_mode, now),
         )
 
     return success(
@@ -104,6 +105,7 @@ async def create_simulation(req: CreateSimulationRequest):
             "status": "created",
             "engine_type": engine_type,
             "platforms": platforms,
+            "prep_model": req.prep_model,
             "agent_mode": agent_mode,
             "created_at": now,
         },
@@ -189,6 +191,28 @@ async def get_simulation(simulation_id: str):
                     "simulation_id": reusable["simulation_id"],
                     "count": reusable["count"],
                 }
+
+    # Include token usage summary
+    with get_db(settings.db_path) as conn:
+        tu_rows = conn.execute(
+            "SELECT "
+            "CASE WHEN stage LIKE 'simulation_prep:profile%' THEN 'preparation' "
+            "WHEN stage = 'simulation_prep:config' THEN 'config' "
+            "ELSE stage END AS stage_group, "
+            "model, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens "
+            "FROM token_usage WHERE simulation_id = ? "
+            "GROUP BY stage_group, model",
+            (simulation_id,),
+        ).fetchall()
+    if tu_rows:
+        token_usage = {}
+        for row in tu_rows:
+            token_usage[row["stage_group"]] = {
+                "input_tokens": row["input_tokens"],
+                "output_tokens": row["output_tokens"],
+                "model": row["model"],
+            }
+        d["token_usage"] = token_usage
 
     return success(d)
 

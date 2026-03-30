@@ -165,6 +165,52 @@ class TestListSimulations:
         assert data[0]["agent_mode"] == "native"
 
 
+class TestPrepModel:
+    @pytest.mark.asyncio
+    async def test_create_simulation_with_prep_model(self, app, tmp_db_path):
+        project_id = _insert_project_with_graph(tmp_db_path)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/simulations", json={
+                "project_id": project_id,
+                "prep_model": "claude-haiku-4-5",
+            })
+
+        assert response.status_code == 201
+        data = response.json()["data"]
+        assert data["prep_model"] == "claude-haiku-4-5"
+
+    @pytest.mark.asyncio
+    async def test_prep_model_persisted_in_db(self, app, tmp_db_path):
+        project_id = _insert_project_with_graph(tmp_db_path)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            create_resp = await client.post("/api/simulations", json={
+                "project_id": project_id,
+                "prep_model": "claude-haiku-4-5",
+            })
+            assert create_resp.status_code == 201
+            sim_id = create_resp.json()["data"]["id"]
+
+            get_resp = await client.get(f"/api/simulations/{sim_id}")
+
+        assert get_resp.status_code == 200
+        assert get_resp.json()["data"]["prep_model"] == "claude-haiku-4-5"
+
+    @pytest.mark.asyncio
+    async def test_create_simulation_without_prep_model_defaults_to_none(self, app, tmp_db_path):
+        project_id = _insert_project_with_graph(tmp_db_path)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post("/api/simulations", json={
+                "project_id": project_id,
+            })
+
+        assert response.status_code == 201
+        data = response.json()["data"]
+        assert data["prep_model"] is None
+
+
 class TestAgentMode:
     @pytest.mark.asyncio
     async def test_create_with_agent_mode_native(self, app, tmp_db_path):
