@@ -8,8 +8,8 @@ from forkcast.db.schema import SCHEMA_VERSION
 
 
 class TestSchemaVersion:
-    def test_schema_version_is_5(self):
-        assert SCHEMA_VERSION == 5
+    def test_schema_version_is_6(self):
+        assert SCHEMA_VERSION == 6
 
     def test_fresh_db_has_conversation_id(self, tmp_db_path):
         init_db(tmp_db_path)
@@ -64,7 +64,7 @@ class TestV1ToV2Migration:
         init_db(tmp_db_path)
         with get_db(tmp_db_path) as conn:
             version = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
-            assert version[0] == "5"
+            assert version[0] == "6"
 
     def test_migration_preserves_existing_data(self, tmp_db_path):
         self._create_v1_db(tmp_db_path)

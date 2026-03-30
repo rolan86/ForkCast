@@ -17,8 +17,8 @@ from forkcast.simulation.models import AgentProfile
 
 
 class TestSchemaV5:
-    def test_schema_version_is_5(self):
-        assert SCHEMA_VERSION == 5
+    def test_schema_version_is_6(self):
+        assert SCHEMA_VERSION == 6
 
     def test_fresh_db_has_total_hours_column(self, tmp_db_path):
         init_db(tmp_db_path)
@@ -361,10 +361,10 @@ class TestPreparePassesTiming:
 
         client = MagicMock(spec=ClaudeClient)
 
-        with patch("forkcast.simulation.prepare.generate_profiles") as mock_gen_profiles, \
+        with patch("forkcast.simulation.prepare.generate_profiles_batched") as mock_gen_profiles, \
              patch("forkcast.simulation.prepare.generate_config") as mock_gen_config:
 
-            mock_gen_profiles.return_value = (_make_profiles(1), {"input": 0, "output": 0})
+            mock_gen_profiles.return_value = (_make_profiles(1), [{"input": 0, "output": 0}])
             mock_gen_config.return_value = (MagicMock(to_dict=lambda: {}), {"input": 0, "output": 0})
 
             prepare_simulation(

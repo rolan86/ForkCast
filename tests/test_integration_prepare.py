@@ -73,11 +73,18 @@ class TestFullPrepareFlow:
 
         mock_client = MagicMock()
         mock_client.default_model = "claude-sonnet-4-6"
-        mock_client.smart_call.side_effect = [
-            LLMResponse(text=_mock_profile(), input_tokens=200, output_tokens=100),
-            LLMResponse(text=_mock_profile(), input_tokens=200, output_tokens=100),
-            LLMResponse(text=_mock_config(), input_tokens=400, output_tokens=200),
-        ]
+        # Profile batch (1 call via complete — returns array of 2)
+        mock_client.complete.return_value = LLMResponse(
+            text=json.dumps([
+                json.loads(_mock_profile()),
+                json.loads(_mock_profile()),
+            ]),
+            input_tokens=400, output_tokens=200,
+        )
+        # Config gen (1 call via smart_call)
+        mock_client.smart_call.return_value = LLMResponse(
+            text=_mock_config(), input_tokens=400, output_tokens=200,
+        )
 
         from forkcast.api.app import create_app
         app = create_app()
@@ -120,12 +127,19 @@ class TestFullPrepareFlow:
         config = json.loads(sim["config_json"])
         assert config["total_hours"] == 24
 
-        # Verify: token usage logged
+        # Verify: token usage logged (per-batch rows with simulation_id)
         with get_db(tmp_db_path) as conn:
-            usage = conn.execute(
-                "SELECT * FROM token_usage WHERE project_id = ? AND stage = 'simulation_prep'",
-                (project_id,),
+            profile_rows = conn.execute(
+                "SELECT * FROM token_usage WHERE simulation_id = ? AND stage LIKE 'simulation_prep:profile%'",
+                (sim_id,),
+            ).fetchall()
+            config_row = conn.execute(
+                "SELECT * FROM token_usage WHERE simulation_id = ? AND stage = 'simulation_prep:config'",
+                (sim_id,),
             ).fetchone()
-        assert usage is not None
-        assert usage["input_tokens"] == 800  # 2*200 + 400
-        assert usage["output_tokens"] == 400  # 2*100 + 200
+        assert len(profile_rows) >= 1
+        assert config_row is not None
+        total_input = sum(r["input_tokens"] for r in profile_rows) + config_row["input_tokens"]
+        total_output = sum(r["output_tokens"] for r in profile_rows) + config_row["output_tokens"]
+        assert total_input == 800  # 400 profiles + 400 config
+        assert total_output == 400  # 200 profiles + 200 config
