@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { useProjectStore } from '@/stores/project.js'
 import AgentRoster from '@/components/interact/AgentRoster.vue'
 import InterviewMode from '@/components/interact/InterviewMode.vue'
+import PanelMode from '@/components/interact/PanelMode.vue'
 import { suggestAgents as fetchSuggestions } from '@/api/interact.js'
 
 const route = useRoute()
@@ -161,6 +162,13 @@ onMounted(() => {
         v-if="activeMode === 'interview'"
         :simulation-id="simulationId"
         :agent="selectedAgent"
+      />
+
+      <PanelMode
+        v-else-if="activeMode === 'panel'"
+        :simulation-id="simulationId"
+        :agents="agents"
+        :selected-agent-ids="selectedAgentIds"
       />
 
       <div
