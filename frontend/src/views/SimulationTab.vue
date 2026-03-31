@@ -12,6 +12,7 @@ import PlatformBadge from '@/components/PlatformBadge.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import SimulationSettings from '@/components/SimulationSettings.vue'
 import SimulationConfigView from '@/components/SimulationConfigView.vue'
+import AgentPopoverChat from '@/components/simulation/AgentPopoverChat.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -33,6 +34,9 @@ const prepareErrorType = ref('')
 const prepareResumable = ref(false)
 const runErrorType = ref('')
 const runResumable = ref(false)
+
+const popoverAgent = ref(null)
+const popoverAnchor = ref(null)
 
 const showReprepareModal = ref(false)
 const reusableProfiles = ref(null)
@@ -268,6 +272,14 @@ function platformActionCount(p) {
   return store.liveFeedActions.filter(a => a.platform === p).length
 }
 
+function openPopover(agent, event) {
+  popoverAgent.value = agent
+  popoverAnchor.value = event.target.getBoundingClientRect()
+}
+function closePopover() {
+  popoverAgent.value = null
+}
+
 function formatDate(d) {
   if (!d) return ''
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -384,7 +396,8 @@ function formatDate(d) {
           v-for="agent in (showAllAgents ? agents : agents.slice(0, 6))"
           :key="agent.username"
           class="rounded-lg border p-3"
-          :style="{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-raised)' }"
+          :style="{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-raised)', cursor: 'pointer' }"
+          @click="openPopover(agent, $event)"
         >
           <div class="flex items-center gap-2 mb-1.5">
             <AgentAvatar :name="agent.name || agent.username" size="md" />
@@ -621,4 +634,13 @@ function formatDate(d) {
       </div>
     </div>
   </div>
+
+  <AgentPopoverChat
+    v-if="popoverAgent"
+    :agent="popoverAgent"
+    :simulation-id="currentSimulation.id"
+    :project-id="store.currentProject.id"
+    :anchor-rect="popoverAnchor"
+    @close="closePopover"
+  />
 </template>
