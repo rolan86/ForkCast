@@ -59,4 +59,7 @@ def create_app() -> FastAPI:
     from forkcast.api.capabilities_routes import router as capabilities_router
     app.include_router(capabilities_router)
 
+    from forkcast.api.interact_routes import router as interact_router
+    app.include_router(interact_router)
+
     return app
