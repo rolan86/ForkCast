@@ -21,6 +21,11 @@ const routes = [
       { path: 'graph', name: 'project-graph', component: () => import('@/views/GraphTab.vue') },
       { path: 'simulations', name: 'project-simulations', component: () => import('@/views/SimulationTab.vue') },
       { path: 'reports', name: 'project-reports', component: () => import('@/views/ReportTab.vue') },
+      {
+        path: 'interact',
+        name: 'project-interact',
+        component: () => import('@/views/InteractTab.vue'),
+      },
     ],
   },
 ]
