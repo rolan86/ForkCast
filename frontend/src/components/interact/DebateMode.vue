@@ -54,7 +54,9 @@ async function start() {
 }
 
 function handleEvent(eventType, data) {
-  if (eventType === 'round_start') {
+  if (eventType === 'debate_started') {
+    debateId.value = data.debate_id
+  } else if (eventType === 'round_start') {
     currentRound.value = data.round
     messages.value.push({ type: 'round', round: data.round, label: data.label })
   } else if (eventType === 'agent_response' && data.type === 'text_delta') {
