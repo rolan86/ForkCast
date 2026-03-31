@@ -47,6 +47,21 @@ class PollRequest(BaseModel):
     agent_ids: Optional[list[int]] = None
 
 
+class DebateRequest(BaseModel):
+    simulation_id: str
+    agent_id_pro: int
+    agent_id_con: int
+    topic: str
+    rounds: int = 5
+    mode: str = "autoplay"  # "autoplay" | "moderated"
+
+
+class DebateContinueRequest(BaseModel):
+    simulation_id: str
+    debate_id: str
+    interjection: str
+
+
 # ---------------------------------------------------------------------------
 # Helper: SSE streaming wrapper for sync iterators
 # ---------------------------------------------------------------------------
@@ -199,3 +214,81 @@ async def poll_endpoint(req: PollRequest):
         req.question, req.options, req.agent_ids, client, settings.domains_dir,
     )
     return success(result)
+
+
+# ---------------------------------------------------------------------------
+# Debate endpoints
+# ---------------------------------------------------------------------------
+
+# In-memory debate state for moderated mode (keyed by debate_id)
+_debate_state: dict[str, dict] = {}
+
+
+@router.post("/debate")
+async def debate_endpoint(req: DebateRequest):
+    """SSE stream of debate rounds between two agents."""
+    settings = get_settings()
+    with get_db(settings.db_path) as conn:
+        sim = conn.execute(
+            "SELECT id FROM simulations WHERE id = ?", (req.simulation_id,)
+        ).fetchone()
+    if sim is None:
+        return error(f"Simulation not found: {req.simulation_id}", status_code=404)
+
+    client = create_llm_client(
+        provider=settings.llm_provider,
+        api_key=settings.anthropic_api_key,
+        ollama_base_url=settings.ollama_base_url,
+        ollama_model=settings.ollama_model,
+    )
+
+    # For moderated mode, store debate state
+    if req.mode == "moderated":
+        import time
+
+        debate_id = f"debate_{req.simulation_id}_{int(time.time())}"
+        _debate_state[debate_id] = {
+            "simulation_id": req.simulation_id,
+            "agent_id_pro": req.agent_id_pro,
+            "agent_id_con": req.agent_id_con,
+            "topic": req.topic,
+            "rounds": req.rounds,
+            "history": [],
+            "current_round": 1,
+        }
+
+    from forkcast.interaction.debate import run_debate
+
+    return _stream_response(lambda: run_debate(
+        settings.db_path, settings.data_dir, req.simulation_id,
+        req.agent_id_pro, req.agent_id_con, req.topic,
+        req.rounds, req.mode, client, settings.domains_dir,
+    ))
+
+
+@router.post("/debate/continue")
+async def debate_continue_endpoint(req: DebateContinueRequest):
+    """SSE stream of next debate round with moderator interjection."""
+    settings = get_settings()
+
+    state = _debate_state.get(req.debate_id)
+    if state is None:
+        return error(f"Debate not found: {req.debate_id}", status_code=404)
+
+    client = create_llm_client(
+        provider=settings.llm_provider,
+        api_key=settings.anthropic_api_key,
+        ollama_base_url=settings.ollama_base_url,
+        ollama_model=settings.ollama_model,
+    )
+
+    from forkcast.interaction.debate import run_debate
+
+    return _stream_response(lambda: run_debate(
+        settings.db_path, settings.data_dir, state["simulation_id"],
+        state["agent_id_pro"], state["agent_id_con"], state["topic"],
+        state["rounds"], "moderated", client, settings.domains_dir,
+        interjection=req.interjection,
+        debate_history=state["history"],
+        current_round=state["current_round"],
+    ))
