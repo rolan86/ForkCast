@@ -6,6 +6,7 @@ import AgentRoster from '@/components/interact/AgentRoster.vue'
 import InterviewMode from '@/components/interact/InterviewMode.vue'
 import PanelMode from '@/components/interact/PanelMode.vue'
 import SurveyMode from '@/components/interact/SurveyMode.vue'
+import DebateMode from '@/components/interact/DebateMode.vue'
 import ReportChatMode from '@/components/interact/ReportChatMode.vue'
 import { suggestAgents as fetchSuggestions } from '@/api/interact.js'
 import { listReports } from '@/api/reports.js'
@@ -195,6 +196,12 @@ onMounted(() => {
         :simulation-id="simulationId"
         :agents="agents"
         :selected-agent-ids="selectedAgentIds"
+      />
+
+      <DebateMode
+        v-else-if="activeMode === 'debate'"
+        :simulation-id="simulationId"
+        :agents="agents"
       />
 
       <ReportChatMode
