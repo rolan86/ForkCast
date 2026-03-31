@@ -7,6 +7,7 @@ import math
 import secrets
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
@@ -171,6 +172,16 @@ async def get_simulation(simulation_id: str):
     if d.get("config_json"):
         d["config"] = json.loads(d["config_json"])
     d.pop("config_json", None)
+
+    # Include agent profiles from disk for prepared/completed simulations
+    if d["status"] in ("prepared", "completed", "running"):
+        profiles_path = Path(settings.data_dir) / simulation_id / "profiles" / "agents.json"
+        if profiles_path.exists():
+            with open(profiles_path) as f:
+                profiles = json.load(f)
+            if "config" not in d:
+                d["config"] = {}
+            d["config"]["profiles"] = profiles
 
     # Include reusable profile info for simulations that haven't been prepared yet
     if d["status"] in ("created", "failed"):
