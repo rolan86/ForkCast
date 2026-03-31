@@ -5,6 +5,7 @@ import { useProjectStore } from '@/stores/project.js'
 import AgentRoster from '@/components/interact/AgentRoster.vue'
 import InterviewMode from '@/components/interact/InterviewMode.vue'
 import PanelMode from '@/components/interact/PanelMode.vue'
+import SurveyMode from '@/components/interact/SurveyMode.vue'
 import ReportChatMode from '@/components/interact/ReportChatMode.vue'
 import { suggestAgents as fetchSuggestions } from '@/api/interact.js'
 import { listReports } from '@/api/reports.js'
@@ -184,6 +185,13 @@ onMounted(() => {
 
       <PanelMode
         v-else-if="activeMode === 'panel'"
+        :simulation-id="simulationId"
+        :agents="agents"
+        :selected-agent-ids="selectedAgentIds"
+      />
+
+      <SurveyMode
+        v-else-if="activeMode === 'survey'"
         :simulation-id="simulationId"
         :agents="agents"
         :selected-agent-ids="selectedAgentIds"
