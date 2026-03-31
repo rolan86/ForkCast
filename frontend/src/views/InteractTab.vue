@@ -1,7 +1,8 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useProjectStore } from '@/stores/project.js'
+import * as simApi from '@/api/simulations.js'
 import AgentRoster from '@/components/interact/AgentRoster.vue'
 import InterviewMode from '@/components/interact/InterviewMode.vue'
 import PanelMode from '@/components/interact/PanelMode.vue'
@@ -26,11 +27,13 @@ const activeMode = ref(route.query.mode || 'interview')
 const selectedAgentIds = ref([])
 const suggestions = ref([])
 const currentTopic = ref('')
+const simulation = ref(null)
+const loading = ref(false)
 
 const agents = computed(() => {
-  const sim = store.currentSimulation
-  if (!sim?.agents) return []
-  return sim.agents
+  const sim = simulation.value
+  if (!sim?.config?.profiles) return []
+  return sim.config.profiles
 })
 
 const selectedAgent = computed(() => {
@@ -38,11 +41,28 @@ const selectedAgent = computed(() => {
   return agents.value.find(a => a.agent_id === selectedAgentIds.value[0]) || null
 })
 
-const currentSimulation = computed(() => store.currentSimulation)
-const simulationId = computed(() => currentSimulation.value?.id || '')
-const simState = computed(() => currentSimulation.value?.status || '')
-const hasReport = computed(() => store.currentSimulation?.has_report || false)
+const simulationId = computed(() => simulation.value?.id || '')
+const simState = computed(() => simulation.value?.status || '')
+const hasReport = computed(() => simulation.value?.has_report || false)
 const currentReportId = ref('')
+
+async function loadSimulation() {
+  loading.value = true
+  try {
+    await store.fetchSimulations()
+    const sims = store.projectSimulations
+    if (sims.length) {
+      // Pick the most relevant simulation: prefer prepared/completed over created
+      const usable = sims.find(s => ['prepared', 'completed'].includes(s.status)) || sims[0]
+      const sim = await simApi.getSimulation(usable.id)
+      simulation.value = sim
+    }
+  } catch (e) {
+    console.error('Failed to load simulation for Interact tab:', e)
+  } finally {
+    loading.value = false
+  }
+}
 
 async function fetchLatestReportId() {
   if (!simulationId.value) return
@@ -96,7 +116,8 @@ async function onSuggest() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await loadSimulation()
   if (route.query.agent) {
     selectedAgentIds.value = [parseInt(route.query.agent)]
   }
@@ -107,7 +128,26 @@ onMounted(() => {
 </script>
 
 <template>
-  <div :style="{ display: 'flex', height: '100%' }">
+  <!-- Loading state -->
+  <div v-if="loading" :style="{
+    display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%',
+    color: 'var(--text-tertiary)', fontFamily: 'var(--font-body)', fontSize: '14px',
+  }">
+    Loading simulation data...
+  </div>
+
+  <!-- No simulation available -->
+  <div v-else-if="!simulation" :style="{
+    display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%',
+    flexDirection: 'column', gap: '8px',
+    color: 'var(--text-tertiary)', fontFamily: 'var(--font-body)',
+  }">
+    <div :style="{ fontSize: '16px', fontWeight: 600, fontFamily: 'var(--font-display)' }">No simulation available</div>
+    <div :style="{ fontSize: '13px' }">Prepare a simulation in the Simulations tab to start interacting with agents.</div>
+  </div>
+
+  <!-- Main layout -->
+  <div v-else :style="{ display: 'flex', height: '100%' }">
     <!-- Sidebar -->
     <div :style="{
       width: '260px',
