@@ -302,6 +302,22 @@ function renderMarkdown(md) {
           :style="{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }"
           @click="exportReport"
         >Export</button>
+        <button
+          @click="$router.push({
+            name: 'project-interact',
+            params: { id: store.currentProject.id },
+            query: { mode: 'report' },
+          })"
+          :style="{
+            padding: '6px 12px',
+            backgroundColor: 'var(--accent)',
+            color: '#fff', border: 'none', borderRadius: '6px',
+            fontFamily: 'var(--font-display)', fontSize: '12px', fontWeight: 600,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px',
+          }"
+        >
+          Discuss in Interact &rarr;
+        </button>
       </div>
     </div>
 

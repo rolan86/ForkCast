@@ -5,7 +5,9 @@ import { useProjectStore } from '@/stores/project.js'
 import AgentRoster from '@/components/interact/AgentRoster.vue'
 import InterviewMode from '@/components/interact/InterviewMode.vue'
 import PanelMode from '@/components/interact/PanelMode.vue'
+import ReportChatMode from '@/components/interact/ReportChatMode.vue'
 import { suggestAgents as fetchSuggestions } from '@/api/interact.js'
+import { listReports } from '@/api/reports.js'
 
 const route = useRoute()
 const store = useProjectStore()
@@ -38,6 +40,18 @@ const currentSimulation = computed(() => store.currentSimulation)
 const simulationId = computed(() => currentSimulation.value?.id || '')
 const simState = computed(() => currentSimulation.value?.status || '')
 const hasReport = computed(() => store.currentSimulation?.has_report || false)
+const currentReportId = ref('')
+
+async function fetchLatestReportId() {
+  if (!simulationId.value) return
+  try {
+    const reports = await listReports(simulationId.value)
+    const completed = reports.filter(r => r.status === 'completed')
+    if (completed.length) {
+      currentReportId.value = completed[0].id
+    }
+  } catch { /* no reports yet */ }
+}
 
 function isModeAvailable(modeId) {
   if (modeId === 'report') return hasReport.value
@@ -55,6 +69,7 @@ function selectMode(modeId) {
   activeMode.value = modeId
   selectedAgentIds.value = []
   suggestions.value = []
+  if (modeId === 'report') fetchLatestReportId()
 }
 
 function onAgentSelect(agentId) {
@@ -82,6 +97,9 @@ async function onSuggest() {
 onMounted(() => {
   if (route.query.agent) {
     selectedAgentIds.value = [parseInt(route.query.agent)]
+  }
+  if (activeMode.value === 'report') {
+    fetchLatestReportId()
   }
 })
 </script>
@@ -169,6 +187,11 @@ onMounted(() => {
         :simulation-id="simulationId"
         :agents="agents"
         :selected-agent-ids="selectedAgentIds"
+      />
+
+      <ReportChatMode
+        v-else-if="activeMode === 'report'"
+        :report-id="currentReportId"
       />
 
       <div
