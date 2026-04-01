@@ -44,3 +44,19 @@ class TestManifestAndHints:
         for expected in ["Buyer", "Competitor", "Investor", "Analyst",
                          "EarlyAdopter", "Partner", "MediaReviewer"]:
             assert expected in suggested_names, f"Missing suggested type: {expected}"
+
+
+class TestOntologyPrompt:
+    def test_ontology_prompt_not_placeholder(self, domain):
+        content = read_prompt(domain, "ontology")
+        assert content.strip() != "# TODO"
+        assert len(content) > 100
+
+    def test_ontology_prompt_mentions_product_launch_entities(self, domain):
+        content = read_prompt(domain, "ontology")
+        for term in ["buyer", "competitor", "investor", "product"]:
+            assert term.lower() in content.lower(), f"Ontology prompt should mention '{term}'"
+
+    def test_ontology_prompt_has_no_jinja_variables(self, domain):
+        content = read_prompt(domain, "ontology")
+        assert "{{" not in content, "Ontology prompt should be plain text, not Jinja2"
