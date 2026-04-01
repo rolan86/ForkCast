@@ -22,6 +22,12 @@ const forceRegenerate = ref(false)
 const agentMode = ref(props.simulation.agent_mode || 'llm')
 const saving = ref(false)
 
+// Token optimization settings (Claude engine only)
+const simConfig = props.simulation.config || {}
+const decisionModel = ref(simConfig.decision_model || 'claude-haiku-4-5')
+const creativeModel = ref(simConfig.creative_model || 'claude-sonnet-4-6')
+const compressFeed = ref(simConfig.compress_feed || false)
+
 const TIMING_PRESETS = [
   { label: 'Quick Test', hours: 6, interval: 30 },
   { label: 'Standard', hours: 48, interval: 30 },
@@ -78,6 +84,10 @@ watch(() => props.simulation, (sim) => {
   agentMode.value = sim.agent_mode || 'llm'
   totalHours.value = sim.total_hours || 48
   minutesPerRound.value = sim.minutes_per_round || 30
+  const cfg = sim.config || {}
+  decisionModel.value = cfg.decision_model || 'claude-haiku-4-5'
+  creativeModel.value = cfg.creative_model || 'claude-sonnet-4-6'
+  compressFeed.value = cfg.compress_feed || false
   const match = TIMING_PRESETS.find(p => p.hours === totalHours.value && p.interval === minutesPerRound.value)
   activePreset.value = match ? match.label : 'Custom'
 }, { deep: true })
@@ -99,7 +109,7 @@ async function save() {
   if (props.readonly) return
   saving.value = true
   try {
-    await updateSettings(props.simulation.id, {
+    const payload = {
       engine_type: engine.value,
       platforms: platforms.value,
       prep_model: prepModel.value,
@@ -107,7 +117,14 @@ async function save() {
       agent_mode: agentMode.value,
       total_hours: totalHours.value,
       minutes_per_round: minutesPerRound.value,
-    })
+    }
+    // Include optimization fields only for Claude engine
+    if (engine.value === 'claude') {
+      payload.decision_model = decisionModel.value
+      payload.creative_model = creativeModel.value
+      payload.compress_feed = compressFeed.value
+    }
+    await updateSettings(props.simulation.id, payload)
     emit('updated')
   } finally {
     saving.value = false
@@ -308,6 +325,47 @@ async function save() {
           <option v-for="m in caps.models" :key="m.id" :value="m.id">{{ m.label }}</option>
         </select>
       </div>
+    </div>
+
+    <!-- Token Optimization (Claude engine only) -->
+    <div v-if="engine === 'claude'">
+      <label class="text-xs mb-1 block" :style="{ color: 'var(--text-secondary)' }">Token Optimization</label>
+      <p class="text-xs mb-3" :style="{ color: 'var(--text-tertiary)' }">
+        Reduce API costs with two-phase model routing and feed compression
+      </p>
+      <div class="grid grid-cols-2 gap-3 mb-3">
+        <div>
+          <label class="text-xs mb-1 block" :style="{ color: 'var(--text-secondary)' }">Decision Model</label>
+          <select
+            v-model="decisionModel"
+            :disabled="readonly"
+            class="w-full px-2 py-1.5 rounded-md text-sm border"
+            :style="{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-raised)', color: 'var(--text-primary)' }"
+          >
+            <option v-for="m in caps.models" :key="m.id" :value="m.id">{{ m.label }}</option>
+          </select>
+          <p class="text-xs mt-0.5" :style="{ color: 'var(--text-tertiary)' }">Cheap model for action decisions</p>
+        </div>
+        <div>
+          <label class="text-xs mb-1 block" :style="{ color: 'var(--text-secondary)' }">Creative Model</label>
+          <select
+            v-model="creativeModel"
+            :disabled="readonly"
+            class="w-full px-2 py-1.5 rounded-md text-sm border"
+            :style="{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-raised)', color: 'var(--text-primary)' }"
+          >
+            <option v-for="m in caps.models" :key="m.id" :value="m.id">{{ m.label }}</option>
+          </select>
+          <p class="text-xs mt-0.5" :style="{ color: 'var(--text-tertiary)' }">Full model for content creation</p>
+        </div>
+      </div>
+      <label class="flex items-center gap-2" :class="{ 'cursor-pointer': !readonly, 'opacity-60': readonly }">
+        <input type="checkbox" v-model="compressFeed" :disabled="readonly" />
+        <span class="text-xs" :style="{ color: 'var(--text-secondary)' }">
+          Compress feed context
+          <span :style="{ color: 'var(--text-tertiary)' }">(reduces cost, may slightly reduce interaction specificity)</span>
+        </span>
+      </label>
     </div>
 
     <!-- Profile Reuse -->
