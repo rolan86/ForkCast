@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Claude API client wrapper with retry, usage tracking, and multiple calling modes."""
 
+import copy
 import logging
 import time
 from dataclasses import dataclass, field
@@ -85,6 +86,7 @@ class ClaudeClient:
         model: str | None = None,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         temperature: float = 1.0,
+        use_cache: bool = False,
     ) -> LLMResponse:
         """Call with tools — Claude can return tool_use blocks."""
         return self._call(
@@ -94,6 +96,7 @@ class ClaudeClient:
             model=model or self.default_model,
             max_tokens=max_tokens,
             temperature=temperature,
+            use_cache=use_cache,
         )
 
     def think(
@@ -196,6 +199,7 @@ class ClaudeClient:
         system = kwargs.pop("system", None)
         tools = kwargs.pop("tools", None)
         thinking = kwargs.pop("thinking", None)
+        use_cache = kwargs.pop("use_cache", False)
 
         create_kwargs: dict[str, Any] = {
             "messages": messages,
@@ -204,9 +208,19 @@ class ClaudeClient:
         }
 
         if system:
-            create_kwargs["system"] = system
+            if use_cache:
+                create_kwargs["system"] = [
+                    {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
+                ]
+            else:
+                create_kwargs["system"] = system
         if tools:
-            create_kwargs["tools"] = tools
+            if use_cache:
+                cached_tools = copy.deepcopy(tools)
+                cached_tools[-1]["cache_control"] = {"type": "ephemeral"}
+                create_kwargs["tools"] = cached_tools
+            else:
+                create_kwargs["tools"] = tools
         if thinking:
             create_kwargs["thinking"] = thinking
         if "temperature" in kwargs and thinking is None:
