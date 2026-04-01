@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from forkcast.domains.loader import load_domain, read_prompt, PROMPT_KEYS
+from forkcast.domains.loader import load_domain, read_prompt, PROMPT_KEYS, list_domains
 
 
 DOMAINS_DIR = Path(__file__).resolve().parent.parent / "domains"
@@ -160,3 +160,24 @@ class TestReportGuidelinesPrompt:
     def test_report_guidelines_has_no_jinja_variables(self, domain):
         content = read_prompt(domain, "report_guidelines")
         assert "{{" not in content, "Report guidelines should be plain text, not Jinja2"
+
+
+class TestIntegration:
+    def test_domain_appears_in_list(self):
+        domains = list_domains(DOMAINS_DIR)
+        names = [d.name for d in domains]
+        assert "product-launch" in names
+
+    def test_all_prompts_are_domain_specific(self, domain):
+        """Verify no prompts fall back to _default — all are overridden."""
+        domain_dir = DOMAINS_DIR / "product-launch"
+        for key in PROMPT_KEYS:
+            prompt_path = domain.prompts[key]
+            assert str(domain_dir) in str(prompt_path), (
+                f"Prompt '{key}' resolved to {prompt_path}, expected path under {domain_dir}"
+            )
+
+    def test_all_prompts_are_non_empty(self, domain):
+        for key in PROMPT_KEYS:
+            content = read_prompt(domain, key)
+            assert len(content.strip()) > 50, f"Prompt '{key}' is too short or empty"
