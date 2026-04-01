@@ -171,14 +171,18 @@ const interactionModeOptions = computed(() => [
       <div class="settings-section">
         <div class="settings-header">Visual Options</div>
 
-        <label class="option-checkbox">
-          <input
-            type="checkbox"
-            :checked="visualMode === VISUAL_MODES.TWO_POINT_FIVE_D"
-            @change="$emit('toggle-visual-mode', $event.target.checked)"
-          />
-          <span>2.5D holographic effect</span>
-        </label>
+        <div class="setting-row">
+          <label class="setting-label">Visual Mode</label>
+          <select
+            class="setting-select"
+            :value="visualMode"
+            @change="$emit('toggle-visual-mode', $event.target.value)"
+          >
+            <option :value="VISUAL_MODES.TWO_D">2D Flat</option>
+            <option :value="VISUAL_MODES.TWO_POINT_FIVE_D">2.5D Holographic</option>
+            <option :value="VISUAL_MODES.THREE_D">3D Brain</option>
+          </select>
+        </div>
 
         <label class="option-checkbox">
           <input
