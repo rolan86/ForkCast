@@ -113,3 +113,27 @@ class TestConfigGenPrompt:
         content_lower = content.lower()
         assert "launch" in content_lower
         assert "peak" in content_lower
+
+
+class TestAgentSystemPrompt:
+    def test_agent_system_prompt_not_placeholder(self, domain):
+        content = read_prompt(domain, "agent_system")
+        assert content.strip() != "# TODO"
+        assert len(content) > 200
+
+    def test_agent_system_prompt_has_required_template_variables(self, domain):
+        content = read_prompt(domain, "agent_system")
+        for var in ["agent_name", "username", "platform", "persona", "age", "profession", "interests"]:
+            assert var in content, f"Agent system prompt should contain '{var}'"
+
+    def test_agent_system_prompt_lists_all_actions(self, domain):
+        content = read_prompt(domain, "agent_system")
+        for action in ["create_post", "like_post", "dislike_post", "create_comment",
+                        "follow_user", "mute_user", "do_nothing"]:
+            assert action in content, f"Agent system prompt should list action '{action}'"
+
+    def test_agent_system_prompt_mentions_product_launch_context(self, domain):
+        content = read_prompt(domain, "agent_system")
+        content_lower = content.lower()
+        assert "product" in content_lower
+        assert "launch" in content_lower
