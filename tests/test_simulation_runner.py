@@ -207,3 +207,118 @@ class TestRunSimulation:
         assert "loading" in stages
         assert "running" in stages or "round" in stages
         assert "complete" in stages
+
+    def test_run_passes_model_config_to_engine(self, tmp_data_dir, tmp_db_path, tmp_domains_dir):
+        """ClaudeEngine should be constructed with decision_model/creative_model from SimulationConfig."""
+        sim_id, _ = _setup_db(tmp_db_path, tmp_data_dir, tmp_domains_dir)
+
+        mock_client = MagicMock()
+        mock_client.default_model = "claude-sonnet-4-6"
+        mock_client.tool_use.return_value = LLMResponse(
+            text="",
+            tool_calls=[{"id": "1", "name": "do_nothing", "input": {"reason": "quiet"}}],
+            input_tokens=10, output_tokens=5,
+            model="claude-haiku-4-5", stop_reason="tool_use",
+        )
+
+        with patch("forkcast.simulation.runner.ClaudeEngine") as MockEngine:
+            mock_engine_instance = MagicMock()
+            mock_engine_instance.run.return_value = {
+                "total_rounds": 1,
+                "total_actions": 2,
+                "decision_tokens": {"input": 100, "output": 50, "model": "claude-haiku-4-5"},
+                "creative_tokens": {"input": 0, "output": 0, "model": "claude-sonnet-4-6"},
+            }
+            mock_engine_instance.state = MagicMock()
+            mock_engine_instance.state.to_dict.return_value = {}
+            MockEngine.return_value = mock_engine_instance
+
+            run_simulation(
+                db_path=tmp_db_path, data_dir=tmp_data_dir, simulation_id=sim_id,
+                client=mock_client, domains_dir=tmp_domains_dir,
+            )
+
+        MockEngine.assert_called_once()
+        call_kwargs = MockEngine.call_args.kwargs
+        assert call_kwargs["decision_model"] == "claude-haiku-4-5"
+        assert call_kwargs["creative_model"] == "claude-sonnet-4-6"
+
+    def test_run_inserts_per_phase_token_rows(self, tmp_data_dir, tmp_db_path, tmp_domains_dir):
+        """Per-phase token rows with simulation_id should be written for decision and creative phases."""
+        sim_id, project_id = _setup_db(tmp_db_path, tmp_data_dir, tmp_domains_dir)
+
+        mock_client = MagicMock()
+        mock_client.default_model = "claude-sonnet-4-6"
+
+        with patch("forkcast.simulation.runner.ClaudeEngine") as MockEngine:
+            mock_engine_instance = MagicMock()
+            mock_engine_instance.run.return_value = {
+                "total_rounds": 1,
+                "total_actions": 2,
+                "decision_tokens": {"input": 200, "output": 80, "model": "claude-haiku-4-5"},
+                "creative_tokens": {"input": 300, "output": 120, "model": "claude-sonnet-4-6"},
+            }
+            mock_engine_instance.state = MagicMock()
+            mock_engine_instance.state.to_dict.return_value = {}
+            MockEngine.return_value = mock_engine_instance
+
+            run_simulation(
+                db_path=tmp_db_path, data_dir=tmp_data_dir, simulation_id=sim_id,
+                client=mock_client, domains_dir=tmp_domains_dir,
+            )
+
+        with get_db(tmp_db_path) as conn:
+            rows = conn.execute(
+                "SELECT stage, model, input_tokens, output_tokens, simulation_id FROM token_usage "
+                "WHERE project_id = ? ORDER BY stage",
+                (project_id,),
+            ).fetchall()
+
+        assert len(rows) == 2
+        stages = {r["stage"] for r in rows}
+        assert "simulation_decision" in stages
+        assert "simulation_creative" in stages
+
+        for row in rows:
+            assert row["simulation_id"] == sim_id
+            if row["stage"] == "simulation_decision":
+                assert row["model"] == "claude-haiku-4-5"
+                assert row["input_tokens"] == 200
+                assert row["output_tokens"] == 80
+            else:
+                assert row["model"] == "claude-sonnet-4-6"
+                assert row["input_tokens"] == 300
+                assert row["output_tokens"] == 120
+
+    def test_run_skips_token_row_when_zero(self, tmp_data_dir, tmp_db_path, tmp_domains_dir):
+        """Token rows with zero input and output should not be inserted."""
+        sim_id, project_id = _setup_db(tmp_db_path, tmp_data_dir, tmp_domains_dir)
+
+        mock_client = MagicMock()
+        mock_client.default_model = "claude-sonnet-4-6"
+
+        with patch("forkcast.simulation.runner.ClaudeEngine") as MockEngine:
+            mock_engine_instance = MagicMock()
+            mock_engine_instance.run.return_value = {
+                "total_rounds": 1,
+                "total_actions": 1,
+                "decision_tokens": {"input": 150, "output": 60, "model": "claude-haiku-4-5"},
+                "creative_tokens": {"input": 0, "output": 0, "model": "claude-sonnet-4-6"},
+            }
+            mock_engine_instance.state = MagicMock()
+            mock_engine_instance.state.to_dict.return_value = {}
+            MockEngine.return_value = mock_engine_instance
+
+            run_simulation(
+                db_path=tmp_db_path, data_dir=tmp_data_dir, simulation_id=sim_id,
+                client=mock_client, domains_dir=tmp_domains_dir,
+            )
+
+        with get_db(tmp_db_path) as conn:
+            rows = conn.execute(
+                "SELECT stage FROM token_usage WHERE project_id = ?",
+                (project_id,),
+            ).fetchall()
+
+        assert len(rows) == 1
+        assert rows[0]["stage"] == "simulation_decision"

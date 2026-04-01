@@ -179,7 +179,12 @@ def run_simulation(
                     if stop_event is not None and stop_event.is_set():
                         break
 
-                    engine = ClaudeEngine(client=client, agent_system_template=agent_system_template)
+                    engine = ClaudeEngine(
+                        client=client,
+                        agent_system_template=agent_system_template,
+                        decision_model=config.decision_model,
+                        creative_model=config.creative_model,
+                    )
 
                     # Wire stop_event into on_round callback
                     round_cb = on_round
@@ -209,8 +214,10 @@ def run_simulation(
                         on_round=round_cb,
                         on_round_complete=round_complete_cb,
                     )
-                    total_tokens["input"] += engine_result.get("input_tokens", 0)
-                    total_tokens["output"] += engine_result.get("output_tokens", 0)
+                    decision = engine_result.get("decision_tokens", {})
+                    creative = engine_result.get("creative_tokens", {})
+                    total_tokens["input"] += decision.get("input", 0) + creative.get("input", 0)
+                    total_tokens["output"] += decision.get("output", 0) + creative.get("output", 0)
                     completed_platforms.append(platform)
 
             elif engine_type == "oasis":
@@ -278,13 +285,22 @@ def run_simulation(
         cleanup_checkpoint(sim_dir)
 
         # 6. Log token usage
-        if engine_type == "claude" and (total_tokens["input"] > 0 or total_tokens["output"] > 0):
+        if engine_type == "claude":
+            decision = engine_result.get("decision_tokens", {})
+            creative = engine_result.get("creative_tokens", {})
             with get_db(db_path) as conn:
-                conn.execute(
-                    "INSERT INTO token_usage (project_id, stage, model, input_tokens, output_tokens, created_at) "
-                    "VALUES (?, 'simulation_run', ?, ?, ?, datetime('now'))",
-                    (project_id, client.default_model, total_tokens["input"], total_tokens["output"]),
-                )
+                if decision.get("input", 0) > 0 or decision.get("output", 0) > 0:
+                    conn.execute(
+                        "INSERT INTO token_usage (project_id, simulation_id, stage, model, input_tokens, output_tokens, created_at) "
+                        "VALUES (?, ?, 'simulation_decision', ?, ?, ?, datetime('now'))",
+                        (project_id, simulation_id, decision.get("model", ""), decision.get("input", 0), decision.get("output", 0)),
+                    )
+                if creative.get("input", 0) > 0 or creative.get("output", 0) > 0:
+                    conn.execute(
+                        "INSERT INTO token_usage (project_id, simulation_id, stage, model, input_tokens, output_tokens, created_at) "
+                        "VALUES (?, ?, 'simulation_creative', ?, ?, ?, datetime('now'))",
+                        (project_id, simulation_id, creative.get("model", ""), creative.get("input", 0), creative.get("output", 0)),
+                    )
 
     except Exception:
         logger.exception("Simulation %s failed", simulation_id)
