@@ -95,3 +95,21 @@ class TestPersonaBatchPrompt:
     def test_persona_batch_prompt_requests_json_output(self, domain):
         content = read_prompt(domain, "persona_batch")
         assert "JSON" in content
+
+
+class TestConfigGenPrompt:
+    def test_config_gen_prompt_not_placeholder(self, domain):
+        content = read_prompt(domain, "config_generation")
+        assert content.strip() != "# TODO"
+        assert len(content) > 200
+
+    def test_config_gen_prompt_has_required_template_variables(self, domain):
+        content = read_prompt(domain, "config_generation")
+        for var in ["entities_summary", "requirement"]:
+            assert var in content, f"Config gen prompt should contain '{var}'"
+
+    def test_config_gen_prompt_specifies_launch_timing(self, domain):
+        content = read_prompt(domain, "config_generation")
+        content_lower = content.lower()
+        assert "launch" in content_lower
+        assert "peak" in content_lower
