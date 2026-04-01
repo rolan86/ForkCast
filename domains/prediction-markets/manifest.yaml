@@ -1,0 +1,24 @@
+name: prediction-markets
+version: "1.0"
+description: >
+  Asset price direction forecasting. Simulates how technical analysts,
+  macro strategists, fundamental analysts, quant traders, retail traders,
+  institutional investors, and contrarians debate price direction on a
+  financial Twitter-like platform.
+language: en
+sim_engine: claude
+platforms:
+  - twitter
+prompts:
+  ontology: prompts/ontology.md
+  persona: prompts/persona.md
+  persona_batch: prompts/persona_batch.md
+  report_guidelines: prompts/report_guidelines.md
+  config_generation: prompts/config_gen.md
+  agent_system: prompts/agent_system.md
+ontology:
+  hints: ontology/hints.yaml
+  max_entity_types: 10
+  required_fallbacks:
+    - Person
+    - Organization

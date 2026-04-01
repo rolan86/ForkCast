@@ -1,0 +1,25 @@
+name: genomics
+version: "1.0"
+description: >
+  Genetic variant pathogenicity classification. Simulates a ClinGen-style
+  expert panel where clinical geneticists, bioinformaticians, functional
+  biologists, genetic counselors, population geneticists, molecular
+  pathologists, and ClinGen curators debate variant classification using
+  ACMG/AMP criteria.
+language: en
+sim_engine: claude
+platforms:
+  - reddit
+prompts:
+  ontology: prompts/ontology.md
+  persona: prompts/persona.md
+  persona_batch: prompts/persona_batch.md
+  report_guidelines: prompts/report_guidelines.md
+  config_generation: prompts/config_gen.md
+  agent_system: prompts/agent_system.md
+ontology:
+  hints: ontology/hints.yaml
+  max_entity_types: 10
+  required_fallbacks:
+    - Person
+    - Organization

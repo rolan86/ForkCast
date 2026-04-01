@@ -1,0 +1,24 @@
+name: medical-trials
+version: "1.0"
+description: >
+  Drug and clinical trial outcome prediction. Simulates how clinical
+  researchers, FDA reviewers, biotech analysts, clinicians, patient
+  advocates, biostatisticians, and competitor scientists debate a
+  trial's likelihood of success.
+language: en
+sim_engine: claude
+platforms:
+  - twitter
+prompts:
+  ontology: prompts/ontology.md
+  persona: prompts/persona.md
+  persona_batch: prompts/persona_batch.md
+  report_guidelines: prompts/report_guidelines.md
+  config_generation: prompts/config_gen.md
+  agent_system: prompts/agent_system.md
+ontology:
+  hints: ontology/hints.yaml
+  max_entity_types: 10
+  required_fallbacks:
+    - Person
+    - Organization

@@ -1,0 +1,21 @@
+# Genomics domain — ontology hints for entity extraction
+max_entity_types: 10
+required_fallbacks:
+  - Person
+  - Organization
+
+suggested_types:
+  - name: ClinicalGeneticist
+    description: Physician specializing in clinical genetics who evaluates variant pathogenicity through patient phenotype, family segregation, and genotype-phenotype correlations
+  - name: Bioinformatician
+    description: Computational specialist who analyzes population frequencies, in-silico predictors, conservation scores, and variant annotation pipelines
+  - name: FunctionalBiologist
+    description: Bench scientist who generates or interprets functional evidence from knockout studies, protein assays, model organisms, and structural modeling
+  - name: GeneticCounselor
+    description: Clinical professional who translates variant classifications into patient-facing guidance, focusing on actionability, family implications, and management decisions
+  - name: PopulationGeneticist
+    description: Researcher specializing in allele frequency analysis across gnomAD subpopulations, founder effects, and frequency-prevalence comparisons
+  - name: MolecularPathologist
+    description: Pathologist interpreting variants in germline and somatic contexts, assessing tumor relevance, mutational burden, and clinical testing standards
+  - name: ClinGenCurator
+    description: Expert curator who applies ACMG/AMP evidence framework systematically, ensures proper evidence code usage, and maintains classification standards

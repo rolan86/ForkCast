@@ -1,0 +1,21 @@
+# Medical trials domain — ontology hints for entity extraction
+max_entity_types: 10
+required_fallbacks:
+  - Person
+  - Organization
+
+suggested_types:
+  - name: ClinicalResearcher
+    description: Principal investigator, study director, or academic researcher leading or contributing to clinical trial design and execution
+  - name: FDAReviewer
+    description: Regulatory scientist or review division officer evaluating trial data for safety, efficacy, and approval readiness
+  - name: BiotechAnalyst
+    description: Sell-side or buy-side analyst covering the sponsor company, modeling commercial potential and probability of approval
+  - name: Clinician
+    description: Practicing physician or specialist who treats the target patient population and evaluates real-world clinical utility
+  - name: PatientAdvocate
+    description: Patient, caregiver, or advocacy organization representative focused on access, unmet need, and tolerability
+  - name: Biostatistician
+    description: Statistical expert evaluating trial design, endpoint selection, powering assumptions, and data analysis methodology
+  - name: CompetitorScientist
+    description: Researcher or executive at a competing pharma/biotech company developing a rival therapy for the same indication

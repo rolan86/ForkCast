@@ -1,0 +1,21 @@
+# Prediction markets domain — ontology hints for entity extraction
+max_entity_types: 10
+required_fallbacks:
+  - Person
+  - Organization
+
+suggested_types:
+  - name: TechnicalAnalyst
+    description: Chart-driven trader who reads price action, support/resistance levels, volume profiles, and technical indicators to forecast direction
+  - name: MacroStrategist
+    description: Top-down thinker who trades based on interest rates, central bank policy, geopolitics, and cross-asset correlations
+  - name: FundamentalAnalyst
+    description: Bottom-up researcher who values assets based on earnings, cash flows, competitive moats, and intrinsic value models
+  - name: QuantTrader
+    description: Systematic trader who relies on statistical models, factor exposures, momentum signals, and algorithmic strategies
+  - name: RetailTrader
+    description: Individual trader driven by social sentiment, momentum, FOMO, and community-sourced trade ideas
+  - name: InstitutionalInvestor
+    description: Fund manager, pension allocator, or endowment CIO focused on risk-adjusted returns, portfolio construction, and position sizing
+  - name: Contrarian
+    description: Skeptic who fades consensus, cites historical analogues, and looks for crowded trades to bet against
