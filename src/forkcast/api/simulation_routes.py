@@ -47,6 +47,9 @@ class UpdateSettingsRequest(BaseModel):
     agent_mode: str | None = None  # "llm" or "native"
     total_hours: float | None = None
     minutes_per_round: int | None = None
+    decision_model: str | None = None
+    creative_model: str | None = None
+    compress_feed: bool | None = None
 
 
 @router.post("")
@@ -272,6 +275,23 @@ async def update_settings(simulation_id: str, req: UpdateSettingsRequest):
             return error("minutes_per_round must be between 10 and 60", status_code=422)
         updates.append("minutes_per_round = ?")
         params.append(req.minutes_per_round)
+
+    # Handle optimization fields — merge into config_json
+    config_updates = {}
+    if req.decision_model is not None:
+        config_updates["decision_model"] = req.decision_model
+    if req.creative_model is not None:
+        config_updates["creative_model"] = req.creative_model
+    if req.compress_feed is not None:
+        config_updates["compress_feed"] = req.compress_feed
+
+    if config_updates:
+        with get_db(settings.db_path) as conn:
+            row = conn.execute("SELECT config_json FROM simulations WHERE id = ?", (simulation_id,)).fetchone()
+            existing_config = json.loads(row["config_json"]) if row and row["config_json"] else {}
+            existing_config.update(config_updates)
+            updates.append("config_json = ?")
+            params.append(json.dumps(existing_config))
 
     if not updates:
         return success({"updated": False})

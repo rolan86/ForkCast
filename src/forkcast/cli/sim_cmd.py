@@ -188,6 +188,9 @@ def sim_start(
     max_rounds: Annotated[int | None, typer.Option(help="Maximum rounds to run")] = None,
     provider: Annotated[str | None, typer.Option("--provider", help="LLM provider (claude or ollama)")] = None,
     model: Annotated[str | None, typer.Option("--model", help="Override default model")] = None,
+    decision_model: Annotated[str | None, typer.Option("--decision-model", help="Model for low-creativity decision actions")] = None,
+    creative_model: Annotated[str | None, typer.Option("--creative-model", help="Model for high-creativity content actions")] = None,
+    compress_feed: Annotated[bool | None, typer.Option("--compress-feed/--no-compress-feed", help="Compress feed context to reduce tokens")] = None,
 ):
     """Start running a prepared simulation."""
     settings = get_settings()
@@ -205,6 +208,24 @@ def sim_start(
     if sim["status"] != "prepared":
         typer.echo(f"Error: Simulation must be 'prepared' to start (current: {sim['status']})", err=True)
         raise typer.Exit(code=1)
+
+    # Merge optimization CLI flags into config_json before running
+    config_overrides = {}
+    if decision_model is not None:
+        config_overrides["decision_model"] = decision_model
+    if creative_model is not None:
+        config_overrides["creative_model"] = creative_model
+    if compress_feed is not None:
+        config_overrides["compress_feed"] = compress_feed
+
+    if config_overrides:
+        existing_config = json.loads(sim["config_json"]) if sim["config_json"] else {}
+        existing_config.update(config_overrides)
+        with get_db(settings.db_path) as conn:
+            conn.execute(
+                "UPDATE simulations SET config_json = ?, updated_at = datetime('now') WHERE id = ?",
+                (json.dumps(existing_config), simulation_id),
+            )
 
     typer.echo(f"Starting simulation {simulation_id} (engine: {sim['engine_type']})...")
     client = create_llm_client(

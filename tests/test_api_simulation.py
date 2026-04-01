@@ -283,3 +283,167 @@ class TestAgentMode:
             })
 
         assert response.status_code == 400
+
+
+class TestOptimizationConfigFields:
+    @pytest.mark.asyncio
+    async def test_update_settings_decision_model(self, app, tmp_db_path):
+        """PATCH settings with decision_model stores it in config_json."""
+        project_id = _insert_project_with_graph(tmp_db_path)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            create_resp = await client.post("/api/simulations", json={"project_id": project_id})
+            sim_id = create_resp.json()["data"]["id"]
+
+            response = await client.patch(f"/api/simulations/{sim_id}/settings", json={
+                "decision_model": "claude-haiku-4-5",
+            })
+
+        assert response.status_code == 200
+        assert response.json()["data"]["updated"] is True
+
+    @pytest.mark.asyncio
+    async def test_update_settings_decision_model_persisted_in_config_json(self, app, tmp_db_path):
+        """decision_model is stored in config_json and visible via GET."""
+        project_id = _insert_project_with_graph(tmp_db_path)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            create_resp = await client.post("/api/simulations", json={"project_id": project_id})
+            sim_id = create_resp.json()["data"]["id"]
+
+            await client.patch(f"/api/simulations/{sim_id}/settings", json={
+                "decision_model": "claude-haiku-4-5",
+            })
+
+            get_resp = await client.get(f"/api/simulations/{sim_id}")
+
+        assert get_resp.status_code == 200
+        config = get_resp.json()["data"]["config"]
+        assert config["decision_model"] == "claude-haiku-4-5"
+
+    @pytest.mark.asyncio
+    async def test_update_settings_creative_model(self, app, tmp_db_path):
+        """PATCH settings with creative_model stores it in config_json."""
+        project_id = _insert_project_with_graph(tmp_db_path)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            create_resp = await client.post("/api/simulations", json={"project_id": project_id})
+            sim_id = create_resp.json()["data"]["id"]
+
+            response = await client.patch(f"/api/simulations/{sim_id}/settings", json={
+                "creative_model": "claude-sonnet-4-5",
+            })
+
+        assert response.status_code == 200
+        assert response.json()["data"]["updated"] is True
+
+    @pytest.mark.asyncio
+    async def test_update_settings_creative_model_persisted_in_config_json(self, app, tmp_db_path):
+        """creative_model is stored in config_json and visible via GET."""
+        project_id = _insert_project_with_graph(tmp_db_path)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            create_resp = await client.post("/api/simulations", json={"project_id": project_id})
+            sim_id = create_resp.json()["data"]["id"]
+
+            await client.patch(f"/api/simulations/{sim_id}/settings", json={
+                "creative_model": "claude-sonnet-4-5",
+            })
+
+            get_resp = await client.get(f"/api/simulations/{sim_id}")
+
+        assert get_resp.status_code == 200
+        config = get_resp.json()["data"]["config"]
+        assert config["creative_model"] == "claude-sonnet-4-5"
+
+    @pytest.mark.asyncio
+    async def test_update_settings_compress_feed(self, app, tmp_db_path):
+        """PATCH settings with compress_feed stores it in config_json."""
+        project_id = _insert_project_with_graph(tmp_db_path)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            create_resp = await client.post("/api/simulations", json={"project_id": project_id})
+            sim_id = create_resp.json()["data"]["id"]
+
+            response = await client.patch(f"/api/simulations/{sim_id}/settings", json={
+                "compress_feed": True,
+            })
+
+        assert response.status_code == 200
+        assert response.json()["data"]["updated"] is True
+
+    @pytest.mark.asyncio
+    async def test_update_settings_compress_feed_persisted_in_config_json(self, app, tmp_db_path):
+        """compress_feed is stored in config_json and visible via GET."""
+        project_id = _insert_project_with_graph(tmp_db_path)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            create_resp = await client.post("/api/simulations", json={"project_id": project_id})
+            sim_id = create_resp.json()["data"]["id"]
+
+            await client.patch(f"/api/simulations/{sim_id}/settings", json={
+                "compress_feed": True,
+            })
+
+            get_resp = await client.get(f"/api/simulations/{sim_id}")
+
+        assert get_resp.status_code == 200
+        config = get_resp.json()["data"]["config"]
+        assert config["compress_feed"] is True
+
+    @pytest.mark.asyncio
+    async def test_update_settings_all_three_optimization_fields(self, app, tmp_db_path):
+        """All three optimization fields can be set together and are merged into config_json."""
+        project_id = _insert_project_with_graph(tmp_db_path)
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            create_resp = await client.post("/api/simulations", json={"project_id": project_id})
+            sim_id = create_resp.json()["data"]["id"]
+
+            patch_resp = await client.patch(f"/api/simulations/{sim_id}/settings", json={
+                "decision_model": "claude-haiku-4-5",
+                "creative_model": "claude-sonnet-4-5",
+                "compress_feed": False,
+            })
+            assert patch_resp.status_code == 200
+            assert patch_resp.json()["data"]["updated"] is True
+
+            get_resp = await client.get(f"/api/simulations/{sim_id}")
+
+        assert get_resp.status_code == 200
+        config = get_resp.json()["data"]["config"]
+        assert config["decision_model"] == "claude-haiku-4-5"
+        assert config["creative_model"] == "claude-sonnet-4-5"
+        assert config["compress_feed"] is False
+
+    @pytest.mark.asyncio
+    async def test_update_settings_optimization_fields_merge_existing_config(self, app, tmp_db_path):
+        """Setting optimization fields merges into existing config_json without losing other keys."""
+        project_id = _insert_project_with_graph(tmp_db_path)
+        from forkcast.db.connection import get_db as _get_db
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            create_resp = await client.post("/api/simulations", json={"project_id": project_id})
+            sim_id = create_resp.json()["data"]["id"]
+
+        # Manually set existing config_json with some data
+        with _get_db(tmp_db_path) as conn:
+            conn.execute(
+                "UPDATE simulations SET config_json = ? WHERE id = ?",
+                (json.dumps({"hot_topics": ["topic1"], "total_hours": 24}), sim_id),
+            )
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            await client.patch(f"/api/simulations/{sim_id}/settings", json={
+                "decision_model": "claude-haiku-4-5",
+            })
+
+            get_resp = await client.get(f"/api/simulations/{sim_id}")
+
+        assert get_resp.status_code == 200
+        config = get_resp.json()["data"]["config"]
+        # Existing config keys must still be present
+        assert config["hot_topics"] == ["topic1"]
+        assert config["total_hours"] == 24
+        # New key merged in
+        assert config["decision_model"] == "claude-haiku-4-5"
