@@ -11,49 +11,38 @@ import GraphMiniMap from '@/components/graph/GraphMiniMap.vue'
 import { NEON_COLORS } from '@/constants/graph.js'
 
 // Mock D3 to avoid actual rendering in tests
-vi.mock('d3', () => ({
-  default: {
-    select: vi.fn(() => ({
-      selectAll: vi.fn(() => ({
-        remove: vi.fn(),
-        data: vi.fn(() => ({
-          join: vi.fn(() => ({
-            attr: vi.fn(() => ({ attr: vi.fn(() => ({ on: vi.fn() }) })),
-            append: vi.fn(() => ({
-              attr: vi.fn(() => ({
-                on: vi.fn(() => ({ call: vi.fn() })),
-              })),
-            })),
-          })),
-        })),
-      })),
-      append: vi.fn(() => ({
-        attr: vi.fn(() => ({
-          style: vi.fn(() => ({
-            append: vi.fn(() => ({
-              attr: vi.fn(() => ({
-                style: vi.fn(() => ({
-                  data: vi.fn(() => ({
-                    join: vi.fn(() => ({
-                      attr: vi.fn(() => ({ style: vi.fn() })),
-                    })),
-                  })),
-                })),
-              })),
-            })),
-          })),
-        })),
-      })),
-    })),
+vi.mock('d3', () => {
+  const createChainable = () => {
+    const chain = {
+      append: vi.fn(() => createChainable()),
+      selectAll: vi.fn(() => createChainable()),
+      select: vi.fn(() => createChainable()),
+      data: vi.fn(() => createChainable()),
+      join: vi.fn(() => createChainable()),
+      attr: vi.fn(() => createChainable()),
+      style: vi.fn(() => createChainable()),
+      on: vi.fn(() => createChainable()),
+      call: vi.fn(() => createChainable()),
+      remove: vi.fn(() => createChainable()),
+      text: vi.fn(() => createChainable()),
+    }
+    return chain
+  }
+
+  return {
+    select: vi.fn(() => createChainable()),
     drag: vi.fn(() => ({
-      on: vi.fn(() => ({ on: vi.fn() })),
+      on: vi.fn(function() { return this }),
     })),
-    mean: vi.fn((arr, fn) => {
-      const values = arr.map(fn)
-      return values.reduce((a, b) => a + b, 0) / values.length
+    color: vi.fn((str) => {
+      if (!str) return null
+      return {
+        opacity: 1,
+        toString: () => str,
+      }
     }),
-  },
-}))
+  }
+})
 
 describe('GraphMiniMap', () => {
   let wrapper
@@ -105,6 +94,18 @@ describe('GraphMiniMap', () => {
       expect(wrapper.props('mainViewBounds')).toEqual(mockMainViewBounds)
     })
 
+    it('should accept visualMode prop', () => {
+      const mode3dWrapper = mount(GraphMiniMap, {
+        props: {
+          nodes: mockNodes,
+          viewport: mockViewport,
+          mainViewBounds: mockMainViewBounds,
+          visualMode: '3d',
+        },
+      })
+      expect(mode3dWrapper.props('visualMode')).toBe('3d')
+    })
+
     it('should use default empty array for nodes', () => {
       const defaultWrapper = mount(GraphMiniMap)
       expect(defaultWrapper.props('nodes')).toEqual([])
@@ -118,6 +119,11 @@ describe('GraphMiniMap', () => {
     it('should use default object for mainViewBounds', () => {
       const defaultWrapper = mount(GraphMiniMap)
       expect(defaultWrapper.props('mainViewBounds')).toEqual({ x: 0, y: 0, w: 0, h: 0 })
+    })
+
+    it('should use default 2d visualMode', () => {
+      const defaultWrapper = mount(GraphMiniMap)
+      expect(defaultWrapper.props('visualMode')).toBe('2d')
     })
   })
 
@@ -278,7 +284,7 @@ describe('GraphMiniMap', () => {
       const bounds = wrapper.vm.calculateGraphBounds(singleNode)
       expect(bounds.minX).toBe(100)
       expect(bounds.maxX).toBe(100)
-      expect(bounds.width).toBe(0) // 100 - 100 = 0, but fallback handles it
+      expect(bounds.width).toBe(100) // 100 - 100 = 0, but fallback (|| 100) applies
     })
 
     it('should handle nodes with negative coordinates', () => {
@@ -324,6 +330,102 @@ describe('GraphMiniMap', () => {
     it('should have proper padding for node rendering', () => {
       // The component should account for PADDING constant
       expect(wrapper.vm).toBeDefined()
+    })
+  })
+
+  describe('3D top-down projection', () => {
+    it('should handle 3D visualMode prop', async () => {
+      const nodes3d = [
+        { id: 'node1', x: 100, y: 100, z: 50, type: 'Person' },
+        { id: 'node2', x: 200, y: 150, z: 100, type: 'Organization' },
+        { id: 'node3', x: 150, y: 200, z: 75, type: 'Concept' },
+      ]
+      const wrapper3d = mount(GraphMiniMap, {
+        props: {
+          nodes: nodes3d,
+          viewport: mockViewport,
+          mainViewBounds: mockMainViewBounds,
+          visualMode: '3d',
+        },
+      })
+      expect(wrapper3d.props('visualMode')).toBe('3d')
+    })
+
+    it('should calculate 3D bounds correctly', () => {
+      const nodes3d = [
+        { id: 'node1', x: 100, y: 100, z: 50, type: 'Person' },
+        { id: 'node2', x: 200, y: 150, z: 100, type: 'Organization' },
+        { id: 'node3', x: 150, y: 200, z: 75, type: 'Concept' },
+      ]
+      const wrapper3d = mount(GraphMiniMap, {
+        props: {
+          nodes: nodes3d,
+          visualMode: '3d',
+        },
+      })
+      const bounds = wrapper3d.vm.calculate3DBounds(nodes3d)
+      expect(bounds.minX).toBe(100)
+      expect(bounds.maxX).toBe(200)
+      expect(bounds.minZ).toBe(50)
+      expect(bounds.maxZ).toBe(100)
+      expect(bounds.width).toBe(100)
+      expect(bounds.depth).toBe(50)
+    })
+
+    it('should handle empty nodes in 3D mode', () => {
+      const wrapper3d = mount(GraphMiniMap, {
+        props: {
+          nodes: [],
+          visualMode: '3d',
+        },
+      })
+      const bounds = wrapper3d.vm.calculate3DBounds([])
+      expect(bounds.minX).toBe(0)
+      expect(bounds.minZ).toBe(0)
+      expect(bounds.maxX).toBe(100)
+      expect(bounds.maxZ).toBe(100)
+    })
+
+    it('should switch between 2D and 3D modes', async () => {
+      const nodes2d3d = [
+        { id: 'node1', x: 100, y: 100, z: 50, type: 'Person' },
+        { id: 'node2', x: 200, y: 150, z: 100, type: 'Organization' },
+      ]
+      const wrapper2d3d = mount(GraphMiniMap, {
+        props: {
+          nodes: nodes2d3d,
+          viewport: mockViewport,
+          mainViewBounds: mockMainViewBounds,
+          visualMode: '2d',
+        },
+      })
+      expect(wrapper2d3d.props('visualMode')).toBe('2d')
+
+      // Switch to 3D
+      await wrapper2d3d.setProps({ visualMode: '3d' })
+      await nextTick()
+      expect(wrapper2d3d.props('visualMode')).toBe('3d')
+
+      // Switch back to 2D
+      await wrapper2d3d.setProps({ visualMode: '2d' })
+      await nextTick()
+      expect(wrapper2d3d.props('visualMode')).toBe('2d')
+    })
+
+    it('should handle nodes without z coordinates in 3D mode', () => {
+      const nodesWithoutZ = [
+        { id: 'node1', x: 100, y: 100, type: 'Person' },
+        { id: 'node2', x: 200, y: 150, type: 'Organization' },
+      ]
+      const wrapper3d = mount(GraphMiniMap, {
+        props: {
+          nodes: nodesWithoutZ,
+          visualMode: '3d',
+        },
+      })
+      const bounds = wrapper3d.vm.calculate3DBounds(nodesWithoutZ)
+      expect(bounds.minZ).toBe(0)
+      expect(bounds.maxZ).toBe(100)
     })
   })
 })
