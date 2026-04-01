@@ -12,7 +12,7 @@ Three new independent domain plugins for ForkCast, each applying collective inte
 2. **medical-trials** — Drug/trial outcome prediction
 3. **genomics** — Variant pathogenicity classification
 
-All three use ForkCast's existing domain plugin system with zero code changes. Each domain is a directory with `manifest.yaml`, customized prompts, and ontology hints.
+All three use ForkCast's existing domain plugin system with zero code changes. Each domain is a directory with `manifest.yaml`, customized prompts, and ontology hints. Entity types in `hints.yaml` serve as persona archetypes — the entity extractor finds instances of these types in seed documents (e.g., "Goldman Sachs" as an `InstitutionalInvestor`), then the persona generator turns each extracted entity into a simulation agent. This is the same pattern used by `product-launch`.
 
 Future enhancements (recorded in roadmap as Phases 8a/8b):
 - **8a:** Custom report post-processing to extract structured data (consensus scores, vote tallies) into JSON
@@ -30,6 +30,37 @@ Simulate diverse market participants debating asset price direction. Produces a 
 
 Mixed inputs: earnings reports, SEC filings, analyst notes, news articles, research reports, social media/forum posts about the asset.
 
+**Example seed document for testing:** An earnings report for a public company (e.g., Tesla Q1 2026 10-Q) combined with 2-3 recent analyst notes and news articles about the company's competitive position.
+
+### Manifest (manifest.yaml)
+
+```yaml
+name: prediction-markets
+version: "1.0"
+description: >
+  Asset price direction forecasting. Simulates how technical analysts,
+  macro strategists, fundamental analysts, quant traders, retail traders,
+  institutional investors, and contrarians debate price direction on a
+  financial Twitter-like platform.
+language: en
+sim_engine: claude
+platforms:
+  - twitter
+prompts:
+  ontology: prompts/ontology.md
+  persona: prompts/persona.md
+  persona_batch: prompts/persona_batch.md
+  report_guidelines: prompts/report_guidelines.md
+  config_generation: prompts/config_gen.md
+  agent_system: prompts/agent_system.md
+ontology:
+  hints: ontology/hints.yaml
+  max_entity_types: 10
+  required_fallbacks:
+    - Person
+    - Organization
+```
+
 ### Entity Types (ontology/hints.yaml)
 
 | Type | Description |
@@ -41,6 +72,24 @@ Mixed inputs: earnings reports, SEC filings, analyst notes, news articles, resea
 | RetailTrader | Individual investor, sentiment and momentum driven |
 | InstitutionalInvestor | Fund manager, risk-adjusted, long-term horizon |
 | Contrarian | Deliberately opposes consensus, stress-tests majority view |
+
+### Ontology Extraction (prompts/ontology.md)
+
+Guide the LLM to extract entity types relevant to financial markets from seed documents. Focus on identifying:
+- Named individuals, firms, and institutions that could be market participants
+- Their market role (analyst, trader, fund, media) based on context
+- Relationships like "covers", "competes with", "invests in", "reports on"
+
+### Persona Generation (prompts/persona.md and persona_batch.md)
+
+Each persona should include:
+- **Trading style:** Time horizon (intraday / swing / position / long-term), risk tolerance
+- **Market lens:** What data they prioritize (charts, fundamentals, macro, sentiment)
+- **Conviction pattern:** How strongly they commit to views, how easily they update
+- **Communication style:** Finance Twitter tone (data-heavy, hot-take, thread-writer, meme-trader)
+- **Bio:** 160-char tagline that sounds like a real FinTwit bio
+
+`persona.md` generates one persona at a time (fallback). `persona_batch.md` generates all personas in a single LLM call (preferred path). Both produce the same `AgentProfile` JSON schema.
 
 ### Agent Behavior (prompts/agent_system.md)
 
@@ -96,6 +145,37 @@ Simulate a diverse panel of medical/biotech stakeholders debating a drug or clin
 
 Mixed inputs: published trial results, ClinicalTrials.gov entries, journal papers, meta-analyses, FDA briefing documents, advisory committee transcripts, biotech analyst reports, investor presentations, conference abstracts.
 
+**Example seed document for testing:** A Phase 3 trial results publication for a novel oncology drug, combined with the FDA briefing document and a biotech analyst note discussing commercial potential.
+
+### Manifest (manifest.yaml)
+
+```yaml
+name: medical-trials
+version: "1.0"
+description: >
+  Drug and clinical trial outcome prediction. Simulates how clinical
+  researchers, FDA reviewers, biotech analysts, clinicians, patient
+  advocates, biostatisticians, and competitor scientists debate a
+  trial's likelihood of success.
+language: en
+sim_engine: claude
+platforms:
+  - twitter
+prompts:
+  ontology: prompts/ontology.md
+  persona: prompts/persona.md
+  persona_batch: prompts/persona_batch.md
+  report_guidelines: prompts/report_guidelines.md
+  config_generation: prompts/config_gen.md
+  agent_system: prompts/agent_system.md
+ontology:
+  hints: ontology/hints.yaml
+  max_entity_types: 10
+  required_fallbacks:
+    - Person
+    - Organization
+```
+
 ### Entity Types (ontology/hints.yaml)
 
 | Type | Description |
@@ -107,6 +187,24 @@ Mixed inputs: published trial results, ClinicalTrials.gov entries, journal paper
 | PatientAdvocate | Represents patient community, access and tolerability focus |
 | Biostatistician | Trial design rigor, statistical methodology, endpoint analysis |
 | CompetitorScientist | Researcher at rival company, critical lens on methodology |
+
+### Ontology Extraction (prompts/ontology.md)
+
+Guide the LLM to extract entity types relevant to clinical trials from seed documents. Focus on identifying:
+- Named researchers, institutions, pharmaceutical companies, regulatory bodies
+- Their role relative to the trial (investigator, sponsor, regulator, competitor)
+- Relationships like "sponsors", "reviews", "competes with", "advocates for"
+
+### Persona Generation (prompts/persona.md and persona_batch.md)
+
+Each persona should include:
+- **Professional lens:** What they prioritize (efficacy data, safety, commercial viability, patient access)
+- **Risk tolerance:** How much ambiguity they accept before recommending approval/rejection
+- **Evidence standards:** What quality of evidence they require (RCT-only vs pragmatic data)
+- **Communication style:** MedTwitter tone (data-heavy, patient-centered, regulatory-cautious, commercially-minded)
+- **Bio:** 160-char tagline that sounds like a real medical professional's Twitter bio
+
+`persona.md` generates one persona at a time (fallback). `persona_batch.md` generates all personas in a single LLM call (preferred path).
 
 ### Agent Behavior (prompts/agent_system.md)
 
@@ -162,6 +260,40 @@ Simulate a ClinGen-style expert panel debating the pathogenicity classification 
 
 Genomic database entries: ClinVar submissions, gnomAD allele frequency data, OMIM disease records. May also include case reports or functional study data.
 
+**Example seed document for testing:** A ClinVar entry for a BRCA2 missense variant with conflicting interpretations, combined with gnomAD frequency data and an OMIM entry for the associated hereditary breast cancer syndrome.
+
+### Manifest (manifest.yaml)
+
+```yaml
+name: genomics
+version: "1.0"
+description: >
+  Genetic variant pathogenicity classification. Simulates a ClinGen-style
+  expert panel where clinical geneticists, bioinformaticians, functional
+  biologists, genetic counselors, population geneticists, molecular
+  pathologists, and ClinGen curators debate variant classification using
+  ACMG/AMP criteria.
+language: en
+sim_engine: claude
+platforms:
+  - reddit
+prompts:
+  ontology: prompts/ontology.md
+  persona: prompts/persona.md
+  persona_batch: prompts/persona_batch.md
+  report_guidelines: prompts/report_guidelines.md
+  config_generation: prompts/config_gen.md
+  agent_system: prompts/agent_system.md
+ontology:
+  hints: ontology/hints.yaml
+  max_entity_types: 10
+  required_fallbacks:
+    - Person
+    - Organization
+```
+
+Note: Reddit platform chosen over Twitter because ACMG evidence code arguments require longer-form discussion that would be artificially constrained by short-form post limits.
+
 ### Entity Types (ontology/hints.yaml)
 
 | Type | Description |
@@ -173,6 +305,24 @@ Genomic database entries: ClinVar submissions, gnomAD allele frequency data, OMI
 | PopulationGeneticist | Allele frequency across ancestries, founder effects, selection pressure |
 | MolecularPathologist | Somatic vs germline context, tumor genomics perspective |
 | ClinGenCurator | Standards adherence, ACMG/AMP evidence code application |
+
+### Ontology Extraction (prompts/ontology.md)
+
+Guide the LLM to extract entity types relevant to genomics from seed documents. Focus on identifying:
+- Named researchers, labs, clinical genetics centers, database contributors
+- Their expertise area (computational, functional, clinical, population)
+- Relationships like "submitted to ClinVar", "studies gene", "specializes in", "disagrees with"
+
+### Persona Generation (prompts/persona.md and persona_batch.md)
+
+Each persona should include:
+- **Expertise area:** Primary evidence type they work with (computational, functional, clinical, population)
+- **Classification tendency:** Conservative (leans VUS when uncertain) vs assertive (willing to classify with less evidence)
+- **Evidence standards:** What they consider strong vs supporting evidence in their area
+- **Communication style:** Scientific forum tone (data-heavy, citation-rich, methodical)
+- **Bio:** 160-char tagline that sounds like a real genetics professional's profile
+
+`persona.md` generates one persona at a time (fallback). `persona_batch.md` generates all personas in a single LLM call (preferred path).
 
 ### Agent Behavior (prompts/agent_system.md)
 
@@ -226,11 +376,16 @@ Two-section report:
 
 All three domains share these design decisions:
 
-- **Platform:** Twitter (default) — short-form debate is well-suited to expert disagreement
 - **Sim engine:** Claude
 - **Fallback:** `_default` for any prompt not overridden
 - **All prompts overridden:** Each domain provides all 6 prompts (ontology, persona, persona_batch, config_gen, agent_system, report_guidelines) since these are specialized domains where defaults wouldn't be appropriate
 - **Persona batch generation:** All three domains use `persona_batch.md` for efficiency (single LLM call for all profiles)
+- **Required fallbacks:** Person and Organization (consistent with existing domains)
+
+**Platform choices:**
+- prediction-markets: Twitter (fast-moving financial debate, short-form)
+- medical-trials: Twitter (MedTwitter is a well-established discourse format)
+- genomics: Reddit (ACMG evidence arguments need longer-form discussion)
 
 ## File Inventory
 
