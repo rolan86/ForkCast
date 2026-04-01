@@ -51,6 +51,9 @@ class SimulationConfig:
     narrative_direction: str
     agent_configs: list[dict[str, Any]]
     platform_config: dict[str, Any]
+    decision_model: str = "claude-haiku-4-5"
+    creative_model: str = "claude-sonnet-4-6"
+    compress_feed: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -65,6 +68,9 @@ class SimulationConfig:
             "narrative_direction": self.narrative_direction,
             "agent_configs": self.agent_configs,
             "platform_config": self.platform_config,
+            "decision_model": self.decision_model,
+            "creative_model": self.creative_model,
+            "compress_feed": self.compress_feed,
         }
 
 

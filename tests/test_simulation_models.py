@@ -110,6 +110,49 @@ class TestSimulationConfig:
         assert isinstance(d["seed_posts"], list)
 
 
+class TestSimulationConfigOptimizationFields:
+    def test_config_has_decision_model_default(self):
+        config = SimulationConfig(
+            total_hours=2, minutes_per_round=30, peak_hours=[10],
+            off_peak_hours=[0], peak_multiplier=1.5, off_peak_multiplier=0.3,
+            seed_posts=[], hot_topics=[], narrative_direction="test",
+            agent_configs=[], platform_config={},
+        )
+        assert config.decision_model == "claude-haiku-4-5"
+
+    def test_config_has_creative_model_default(self):
+        config = SimulationConfig(
+            total_hours=2, minutes_per_round=30, peak_hours=[10],
+            off_peak_hours=[0], peak_multiplier=1.5, off_peak_multiplier=0.3,
+            seed_posts=[], hot_topics=[], narrative_direction="test",
+            agent_configs=[], platform_config={},
+        )
+        assert config.creative_model == "claude-sonnet-4-6"
+
+    def test_config_has_compress_feed_default_false(self):
+        config = SimulationConfig(
+            total_hours=2, minutes_per_round=30, peak_hours=[10],
+            off_peak_hours=[0], peak_multiplier=1.5, off_peak_multiplier=0.3,
+            seed_posts=[], hot_topics=[], narrative_direction="test",
+            agent_configs=[], platform_config={},
+        )
+        assert config.compress_feed is False
+
+    def test_config_to_dict_includes_new_fields(self):
+        config = SimulationConfig(
+            total_hours=2, minutes_per_round=30, peak_hours=[10],
+            off_peak_hours=[0], peak_multiplier=1.5, off_peak_multiplier=0.3,
+            seed_posts=[], hot_topics=[], narrative_direction="test",
+            agent_configs=[], platform_config={},
+            decision_model="custom-model", creative_model="custom-model-2",
+            compress_feed=True,
+        )
+        d = config.to_dict()
+        assert d["decision_model"] == "custom-model"
+        assert d["creative_model"] == "custom-model-2"
+        assert d["compress_feed"] is True
+
+
 class TestPrepareResult:
     def test_create_result(self):
         result = PrepareResult(
