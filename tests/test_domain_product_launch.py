@@ -60,3 +60,22 @@ class TestOntologyPrompt:
     def test_ontology_prompt_has_no_jinja_variables(self, domain):
         content = read_prompt(domain, "ontology")
         assert "{{" not in content, "Ontology prompt should be plain text, not Jinja2"
+
+
+class TestPersonaPrompt:
+    def test_persona_prompt_not_placeholder(self, domain):
+        content = read_prompt(domain, "persona")
+        assert content.strip() != "# TODO"
+        assert len(content) > 200
+
+    def test_persona_prompt_has_required_template_variables(self, domain):
+        content = read_prompt(domain, "persona")
+        for var in ["entity_name", "entity_type", "entity_description",
+                     "related_entities", "requirement"]:
+            assert var in content, f"Persona prompt should contain template variable '{var}'"
+
+    def test_persona_prompt_mentions_product_launch_dimensions(self, domain):
+        content = read_prompt(domain, "persona")
+        content_lower = content.lower()
+        for concept in ["market position", "risk tolerance", "pricing"]:
+            assert concept in content_lower, f"Persona prompt should mention '{concept}'"
