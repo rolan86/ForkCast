@@ -30,6 +30,13 @@ class Post:
                 parts.append(f"  └ ... and {len(comments) - 3} more comments")
         return "\n".join(parts)
 
+    def to_summary_text(self) -> str:
+        """Render this post as a one-line summary for compressed feeds."""
+        truncated = self.content[:80] + "..." if len(self.content) > 80 else self.content
+        likes = f"{self.likes} like{'s' if self.likes != 1 else ''}"
+        dislikes = f"{self.dislikes} dislike{'s' if self.dislikes != 1 else ''}"
+        return f"[Post #{self.id}] @{self.author_name}: {truncated} ({likes}, {dislikes})"
+
     def to_dict(self) -> dict:
         return {
             "id": self.id, "author_id": self.author_id, "author_name": self.author_name,
@@ -138,6 +145,10 @@ class SimulationState:
     def mute(self, agent_id: int, muted_id: int) -> None:
         """Mute an agent. Idempotent."""
         self.mutes[agent_id].add(muted_id)
+
+    def snapshot(self) -> "SimulationState":
+        """Return a deep copy of this state for round-level isolation."""
+        return SimulationState.from_dict(self.to_dict())
 
     def get_post_comments(self, post_id: int) -> list[Comment]:
         """Get all comments for a post, ordered by timestamp."""

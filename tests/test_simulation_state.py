@@ -121,3 +121,65 @@ class TestPost:
         assert "alice" in text
         assert "Great insight on AI" in text
         assert "1 like" in text
+
+
+class TestPostSummaryText:
+    def test_summary_text_format(self):
+        post = Post(id=5, author_id=1, author_name="alice", content="Great product but expensive",
+                    timestamp="2026-04-01T10:00:00Z", likes=3, dislikes=1)
+        summary = post.to_summary_text()
+        assert "[Post #5]" in summary
+        assert "@alice" in summary
+        assert "3 likes" in summary
+        assert "1 dislike" in summary
+
+    def test_summary_text_is_single_line(self):
+        post = Post(id=0, author_id=1, author_name="bob", content="Short take",
+                    timestamp="2026-04-01T10:00:00Z", likes=0, dislikes=0)
+        summary = post.to_summary_text()
+        assert "\n" not in summary
+
+    def test_summary_text_truncates_long_content(self):
+        long_content = "A" * 200
+        post = Post(id=0, author_id=1, author_name="bob", content=long_content,
+                    timestamp="2026-04-01T10:00:00Z", likes=0, dislikes=0)
+        summary = post.to_summary_text()
+        assert len(summary) < 150
+
+
+class TestSimulationStateSnapshot:
+    def test_snapshot_returns_independent_copy(self):
+        state = SimulationState("twitter", {"recency": 0.5, "popularity": 0.3, "relevance": 0.2})
+        state.add_post(0, "alice", "Hello", "2026-04-01T10:00:00Z")
+        state.like_post(0, 1)
+
+        snap = state.snapshot()
+
+        # Mutate original — snapshot should be unaffected
+        state.add_post(1, "bob", "World", "2026-04-01T10:01:00Z")
+        state.like_post(0, 2)
+
+        assert len(snap.posts) == 1
+        assert len(state.posts) == 2
+        assert snap.posts[0].likes == 1
+        assert state.posts[0].likes == 2
+
+    def test_snapshot_preserves_followers_and_mutes(self):
+        state = SimulationState("twitter", {"recency": 1.0, "popularity": 0.0, "relevance": 0.0})
+        state.follow(0, 1)
+        state.mute(0, 2)
+
+        snap = state.snapshot()
+
+        # Mutate original
+        state.follow(0, 3)
+
+        assert 1 in snap.followers[0]
+        assert 3 not in snap.followers[0]
+        assert 2 in snap.mutes[0]
+
+    def test_snapshot_preserves_platform_and_weights(self):
+        state = SimulationState("reddit", {"recency": 0.3, "popularity": 0.5, "relevance": 0.2})
+        snap = state.snapshot()
+        assert snap.platform == "reddit"
+        assert snap.feed_weights == {"recency": 0.3, "popularity": 0.5, "relevance": 0.2}
