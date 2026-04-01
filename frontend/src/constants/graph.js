@@ -100,6 +100,7 @@ export const CLUSTERED_LAYOUT_CONFIG = {
 export const VISUAL_MODES = {
   TWO_D: '2d',       // Flat rendering
   TWO_POINT_FIVE_D: '2.5d',  // 2.5D holographic effect with depth and glow
+  THREE_D: '3d',     // Full 3D rendering with three.js
 }
 
 /**
@@ -134,4 +135,74 @@ export const ANIMATION_CONFIG = {
   pulse: 2000,              // Pulse animation duration (ms) - infinite loop
   clusterCollapse: 300,     // Cluster collapse animation (ms)
   clusterExpand: 300,       // Cluster expand animation (ms)
+}
+
+/**
+ * 3D render configuration
+ * Camera, geometry, and animation defaults for three.js 3D graphs
+ */
+export const RENDER_CONFIG_3D = {
+  cameraFOV: 60,
+  cameraDistance: 150,
+  maxCameraDistance: 500,
+  minCameraDistance: 50,
+  orbitDamping: 0.05,
+  autoRotateSpeed: 0.5,
+  diveInDistance: 30,
+  diveInDuration: 800,
+  idleAutoRotateDelay: 10000,
+  pulseFrequency: 0.5,
+  pulseAmplitude: 0.05,
+  nodeBaseRadius: 2,
+  nodeMaxRadius: 8,
+  sphereSegments: 32,
+  icosahedronDetail: 1,
+  sphereNodeThreshold: 300,
+  pulseDisableThreshold: 500,
+  fpsLowThreshold: 20,
+  fpsLowDuration: 3000,
+  fpsToastCooldown: 60000,
+}
+
+/**
+ * Connection style identifiers for 3D graphs
+ */
+export const CONNECTION_STYLES = {
+  CURVED: 'curved',
+  PARTICLE: 'particle',
+  ADAPTIVE: 'adaptive',
+}
+
+/**
+ * Camera distance thresholds for adaptive connection styles
+ */
+export const ADAPTIVE_THRESHOLDS = {
+  overviewDistance: 500,
+  midRangeDistance: 200,
+  closeUpDistance: 50,
+}
+
+/**
+ * Performance presets for 3D rendering
+ * Trade-offs between visual quality and frame rate
+ */
+export const PERFORMANCE_PRESETS = {
+  QUALITY: {
+    glow: true,
+    pulse: true,
+    connectionStyle: 'curved',
+    geometryDetail: 'high',
+  },
+  BALANCED: {
+    glow: true,
+    pulse: false,
+    connectionStyle: 'adaptive',
+    geometryDetail: 'high',
+  },
+  PERFORMANCE: {
+    glow: false,
+    pulse: false,
+    connectionStyle: 'curved',
+    geometryDetail: 'low',
+  },
 }
