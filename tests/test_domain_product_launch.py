@@ -79,3 +79,19 @@ class TestPersonaPrompt:
         content_lower = content.lower()
         for concept in ["market position", "risk tolerance", "pricing"]:
             assert concept in content_lower, f"Persona prompt should mention '{concept}'"
+
+
+class TestPersonaBatchPrompt:
+    def test_persona_batch_prompt_not_placeholder(self, domain):
+        content = read_prompt(domain, "persona_batch")
+        assert content.strip() != "# TODO"
+        assert len(content) > 200
+
+    def test_persona_batch_prompt_has_required_template_variables(self, domain):
+        content = read_prompt(domain, "persona_batch")
+        for var in ["count", "entities", "requirement"]:
+            assert var in content, f"Persona batch prompt should contain '{var}'"
+
+    def test_persona_batch_prompt_requests_json_output(self, domain):
+        content = read_prompt(domain, "persona_batch")
+        assert "JSON" in content
