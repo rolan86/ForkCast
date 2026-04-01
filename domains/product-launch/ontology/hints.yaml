@@ -1,0 +1,21 @@
+# Product launch domain — ontology hints for entity extraction
+max_entity_types: 10
+required_fallbacks:
+  - Person
+  - Organization
+
+suggested_types:
+  - name: Buyer
+    description: Target customer — enterprise, SMB, or consumer segment with purchasing authority or intent
+  - name: Competitor
+    description: Existing player in the space whose market position is threatened or validated by the launch
+  - name: Investor
+    description: VC, angel, or market observer evaluating the business opportunity and market dynamics
+  - name: Analyst
+    description: Industry analyst, tech journalist, or newsletter writer who shapes market narrative
+  - name: EarlyAdopter
+    description: Power user, beta tester, or community evangelist who tries new products first
+  - name: Partner
+    description: Integration partner, reseller, or ecosystem player whose business connects to the product
+  - name: MediaReviewer
+    description: Product reviewer, YouTuber, or blogger who produces launch-day coverage and comparisons
