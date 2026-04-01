@@ -8,8 +8,9 @@ Upload documents. Ask a question. AI agents simulate how stakeholders would actu
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB.svg)](https://python.org)
-[![Tests](https://img.shields.io/badge/Tests-412%20passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-503%20passing-brightgreen.svg)]()
 [![Claude API](https://img.shields.io/badge/LLM-Claude%20API-orange.svg)](https://anthropic.com)
+[![Ollama](https://img.shields.io/badge/LLM-Ollama%20(local)-green.svg)](https://ollama.com)
 
 </div>
 
@@ -54,15 +55,29 @@ git clone https://github.com/merryldmello/forkcast.git
 cd forkcast
 pip install -e .
 
-# Configure (only need an Anthropic API key)
+# Configure
 cp .env.example .env
-# Edit .env → set ANTHROPIC_API_KEY
+```
 
-# Run the API server
+**Option A: Claude API (best quality)**
+```bash
+# Edit .env → set ANTHROPIC_API_KEY=sk-ant-...
 forkcast server start
 ```
 
-That's it. One API key. No Zep. No managed graph database. No external services.
+**Option B: Ollama (free, runs locally)**
+```bash
+# Install Ollama: https://ollama.com
+ollama pull llama3.1    # or qwen2.5:7b, mistral, etc.
+
+# Edit .env:
+#   FORKCAST_LLM_PROVIDER=ollama
+#   FORKCAST_OLLAMA_MODEL=llama3.1
+
+forkcast server start
+```
+
+That's it. One API key — or no API key at all with Ollama. No Zep. No managed graph database. No external services.
 
 ### Try Your First Prediction
 
@@ -94,7 +109,7 @@ npm install
 npm run dev    # localhost:5173, proxies to API on :5001
 ```
 
-Vue 3 dashboard with project wizard, D3 knowledge graph visualization, live simulation feed, and report viewer.
+Vue 3 dashboard with project wizard, D3 knowledge graph visualization, live simulation feed, report viewer, and an Interact tab with 5 modes: agent interview, group panel, survey/poll, agent-to-agent debate, and report chat.
 
 ---
 
@@ -134,7 +149,7 @@ Documents + Prediction Question
 | Frontend | Vue 3, Pinia, Tailwind CSS, D3.js |
 | CLI | Typer |
 | Database | SQLite (WAL mode) |
-| LLM | Anthropic Claude API (claude-sonnet-4-6) |
+| LLM | Anthropic Claude API / Ollama (local models) |
 | Knowledge Graph | NetworkX (DiGraph) |
 | Vector Store | ChromaDB (all-MiniLM-L6-v2) |
 | Simulation Engines | Claude (native tool-use) + OASIS (optional) |
@@ -150,13 +165,15 @@ ForkCast takes a different approach:
 
 | | MiroFish | ForkCast |
 |---|---|---|
-| **LLM** | Qwen (Alibaba) via OpenAI SDK | Claude (Anthropic) native |
+| **LLM** | Qwen (Alibaba) via OpenAI SDK | Claude (Anthropic) + Ollama (local models) |
 | **Simulation** | OASIS only | Dual: Claude tool-use + OASIS |
 | **Domains** | Hardcoded | File-based plugin system |
 | **Evaluation** | None | 16 gates + 7 LLM judgments |
 | **Report Agent** | Basic | Tool-use loop with 5 research tools |
 | **Agent Chat** | Limited | Full in-character conversations |
-| **Dependencies** | Zep Cloud + LLM API | One API key. That's it. |
+| **Interact** | None | 5 modes: interview, panel, survey, debate, report chat |
+| **Local Models** | No | Ollama support (Llama, Qwen, Mistral, etc.) |
+| **Dependencies** | Zep Cloud + LLM API | One API key — or zero with Ollama |
 | **Language** | Chinese-first | English-first |
 
 ---
@@ -260,6 +277,12 @@ All operations available via HTTP. Long-running operations stream progress via S
 | `POST /api/simulations/{id}/start` | Run simulation (SSE) |
 | `POST /api/reports/generate` | Generate report (SSE) |
 | `POST /api/reports/{id}/chat` | Chat with report agent |
+| `POST /api/chat/agent` | Chat with any simulated agent |
+| `POST /api/interact/panel` | Group panel interview (SSE) |
+| `POST /api/interact/survey` | Free-text survey (SSE) |
+| `POST /api/interact/poll` | Structured poll |
+| `POST /api/interact/debate` | Agent-to-agent debate (SSE) |
+| `POST /api/interact/suggest` | Smart agent suggestions |
 | `GET /api/domains` | List available domains |
 | `GET /api/capabilities` | Models, engines, agent modes |
 
@@ -275,7 +298,7 @@ pip install -e .
 uv sync --group dev
 
 # Run tests
-pytest                          # All 412 tests
+pytest                          # All 503 tests
 pytest tests/test_graph_store.py  # Single file
 pytest -k "test_save_and_load"    # Single test
 
@@ -289,7 +312,8 @@ uv pip install --no-deps camel-oasis
 src/forkcast/
 ├── config.py          # Settings singleton (env vars)
 ├── db/                # SQLite with WAL, schema v1→v4
-├── llm/               # ClaudeClient: complete, tool_use, think, stream
+├── llm/               # LLM client factory: Claude + Ollama providers
+├── interaction/       # Interact modes: panel, survey, poll, debate, suggest
 ├── graph/             # Knowledge graph pipeline (extract → chunk → entities → graph)
 ├── simulation/        # Claude engine (tool-use) + OASIS engine + state management
 ├── report/            # Tool-use research loop + chat
@@ -299,14 +323,14 @@ src/forkcast/
 └── cli/               # Typer subcommands
 ```
 
-60 source files. 65 test files. 412 tests passing.
+71 source files. 76 test files. 503 tests passing.
 
 ---
 
 ## Requirements
 
 - Python 3.11+
-- Anthropic API key
+- **One of:** Anthropic API key **or** [Ollama](https://ollama.com) installed locally
 - Node.js 18+ (for frontend, optional)
 
 Optional: [OASIS](https://github.com/camel-ai/oasis) for the second simulation engine.
