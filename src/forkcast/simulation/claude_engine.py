@@ -96,6 +96,100 @@ AGENT_TOOLS = [
     },
 ]
 
+# Stripped-down tools for Phase 1 (decision only — no content fields)
+DECISION_TOOLS = [
+    {
+        "name": "create_post",
+        "description": "Decide to write a new post on the platform",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "like_post",
+        "description": "Like a post in your feed",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "post_id": {"type": "integer", "description": "The ID of the post to like"},
+            },
+            "required": ["post_id"],
+        },
+    },
+    {
+        "name": "dislike_post",
+        "description": "Dislike a post in your feed",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "post_id": {"type": "integer", "description": "The ID of the post to dislike"},
+            },
+            "required": ["post_id"],
+        },
+    },
+    {
+        "name": "create_comment",
+        "description": "Decide to reply to a specific post",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "post_id": {"type": "integer", "description": "The ID of the post to comment on"},
+            },
+            "required": ["post_id"],
+        },
+    },
+    {
+        "name": "follow_user",
+        "description": "Follow another user",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {"type": "integer", "description": "The agent ID of the user to follow"},
+            },
+            "required": ["user_id"],
+        },
+    },
+    {
+        "name": "mute_user",
+        "description": "Mute another user so their posts don't appear in your feed",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {"type": "integer", "description": "The agent ID of the user to mute"},
+            },
+            "required": ["user_id"],
+        },
+    },
+    {
+        "name": "do_nothing",
+        "description": "Skip this round without taking action",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reason": {"type": "string", "description": "Brief reason for skipping"},
+            },
+            "required": ["reason"],
+        },
+    },
+]
+
+# Phase 2 tool — content generation only
+CREATIVE_TOOLS = [
+    {
+        "name": "write_content",
+        "description": "Write the content for your post or comment",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "The text content to publish"},
+            },
+            "required": ["content"],
+        },
+    },
+]
+
 # Map tool names to ActionType values
 _TOOL_TO_ACTION = {
     "create_post": ActionType.CREATE_POST,
