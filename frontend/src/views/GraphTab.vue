@@ -8,7 +8,7 @@ import { useGraphRenderer } from '@/composables/useGraphRenderer.js'
 import { useGraph3DRenderer } from '@/composables/useGraph3DRenderer.js'
 import { NEON_COLORS, LAYOUT_TYPES, VISUAL_MODES, INTERACTION_MODES, RENDER_CONFIG_3D } from '@/constants/graph.js'
 import { findShortestPath, findNeighbors, findNodesInLasso } from '@/utils/graph/interactions/modes.js'
-import { projectToScreen, isPointInPolygon } from '@/utils/graph/interactions/modes3d.js'
+import { projectToScreen, isPointInPolygon, computePathHighlightSet } from '@/utils/graph/interactions/modes3d.js'
 import EmptyState from '@/components/EmptyState.vue'
 import ProgressPanel from '@/components/ProgressPanel.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -513,6 +513,75 @@ function handleKeydown3D(event) {
   }
 }
 
+// --- 3D Lasso Selection ---
+const lassoPoints3D = ref([])
+const isLassoing3D = ref(false)
+
+function handleMouseDown3D(event) {
+  if (graphState.visualMode !== VISUAL_MODES.THREE_D) return
+  if (graphState.selection.mode !== INTERACTION_MODES.LASSO) return
+  isLassoing3D.value = true
+  lassoPoints3D.value = [{ x: event.offsetX, y: event.offsetY }]
+}
+
+function handleMouseMove3D(event) {
+  if (!isLassoing3D.value) return
+  lassoPoints3D.value.push({ x: event.offsetX, y: event.offsetY })
+}
+
+async function handleMouseUp3D() {
+  if (!isLassoing3D.value) return
+  isLassoing3D.value = false
+
+  if (lassoPoints3D.value.length < 3) return
+
+  const gData = graph3DRenderer.getGraphData()
+  const camera = graph3DRenderer.getCamera()
+  if (!gData || !camera) return
+
+  const THREE = await import('three')
+  const width = svgContainer.value.clientWidth
+  const height = svgContainer.value.clientHeight
+  const selectedIds = []
+
+  gData.nodes.forEach(node => {
+    if (node.x == null) return
+    const vec = new THREE.Vector3(node.x, node.y, node.z).project(camera)
+    const screenPos = projectToScreen(vec, camera, width, height)
+    if (isPointInPolygon(screenPos, lassoPoints3D.value)) {
+      selectedIds.push(node.id)
+    }
+  })
+
+  updateSelection({ nodes: selectedIds })
+  lassoPoints3D.value = []
+}
+
+// --- 3D Path & Neighbor Highlighting ---
+watch(
+  () => graphState.selection.pathResult,
+  (path) => {
+    if (graphState.visualMode !== VISUAL_MODES.THREE_D || !path?.length) {
+      if (graphState.visualMode === VISUAL_MODES.THREE_D) graph3DRenderer.clearHighlights()
+      return
+    }
+    const { nodeIds, edgeKeys } = computePathHighlightSet(path)
+    graph3DRenderer.highlightNodes(nodeIds)
+    graph3DRenderer.highlightEdges(edgeKeys)
+  },
+)
+
+watch(
+  () => graphState.selection.neighborResult,
+  (neighbors) => {
+    if (graphState.visualMode !== VISUAL_MODES.THREE_D || !neighbors?.length) {
+      if (graphState.visualMode === VISUAL_MODES.THREE_D) graph3DRenderer.clearHighlights()
+      return
+    }
+    graph3DRenderer.highlightNodes(new Set(neighbors.map(n => n.id || n)))
+  },
+)
+
 function handleSelectionAction(actionId) {
   switch (actionId) {
     case 'deselect':
@@ -630,6 +699,9 @@ function handleSelectionAction(actionId) {
             ref="svgContainer"
             class="w-full h-full min-h-[500px]"
             :style="{ cursor: interactionMeta.cursor }"
+            @mousedown="handleMouseDown3D"
+            @mousemove="handleMouseMove3D"
+            @mouseup="handleMouseUp3D"
           />
 
           <!-- Stats panel (conditionally rendered in graph area) -->
