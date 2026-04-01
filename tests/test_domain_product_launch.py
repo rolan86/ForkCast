@@ -137,3 +137,26 @@ class TestAgentSystemPrompt:
         content_lower = content.lower()
         assert "product" in content_lower
         assert "launch" in content_lower
+
+
+class TestReportGuidelinesPrompt:
+    def test_report_guidelines_not_placeholder(self, domain):
+        content = read_prompt(domain, "report_guidelines")
+        assert content.strip() != "# TODO"
+        assert len(content) > 300
+
+    def test_report_guidelines_lists_research_tools(self, domain):
+        content = read_prompt(domain, "report_guidelines")
+        for tool in ["graph_search", "graph_explore", "simulation_data",
+                      "interview_agent", "agent_actions"]:
+            assert tool in content, f"Report guidelines should mention tool '{tool}'"
+
+    def test_report_guidelines_has_two_sections(self, domain):
+        content = read_prompt(domain, "report_guidelines")
+        content_lower = content.lower()
+        assert "market reception" in content_lower, "Should have Market Reception section"
+        assert "go-to-market" in content_lower, "Should have Go-to-Market section"
+
+    def test_report_guidelines_has_no_jinja_variables(self, domain):
+        content = read_prompt(domain, "report_guidelines")
+        assert "{{" not in content, "Report guidelines should be plain text, not Jinja2"
