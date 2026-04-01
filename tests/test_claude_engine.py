@@ -193,14 +193,25 @@ class TestClaudeEngineRun:
 
         mock_client = MagicMock()
         mock_client.default_model = "claude-sonnet-4-6"
-        mock_client.tool_use.return_value = LLMResponse(
-            text="",
-            tool_calls=[{"id": "1", "name": "create_post", "input": {"content": "Hello from sim"}}],
-            input_tokens=100,
-            output_tokens=50,
-            model="claude-sonnet-4-6",
-            stop_reason="tool_use",
-        )
+
+        def mock_tool_use(**kwargs):
+            # Phase 1 (decision model) — decide to create_post
+            if kwargs.get("model") == "claude-haiku-4-5":
+                return LLMResponse(
+                    text="",
+                    tool_calls=[{"id": "1", "name": "create_post", "input": {}}],
+                    input_tokens=100, output_tokens=50,
+                    model="claude-haiku-4-5", stop_reason="tool_use",
+                )
+            # Phase 2 (creative model) — write content
+            return LLMResponse(
+                text="",
+                tool_calls=[{"id": "1", "name": "write_content", "input": {"content": "Hello from sim"}}],
+                input_tokens=50, output_tokens=30,
+                model="claude-sonnet-4-6", stop_reason="tool_use",
+            )
+
+        mock_client.tool_use.side_effect = mock_tool_use
 
         engine = ClaudeEngine(client=mock_client, agent_system_template="You are {{ agent_name }}. {{ persona }}")
         actions = []
@@ -249,14 +260,23 @@ class TestClaudeEngineRun:
 
         mock_client = MagicMock()
         mock_client.default_model = "claude-sonnet-4-6"
-        mock_client.tool_use.return_value = LLMResponse(
-            text="",
-            tool_calls=[{"id": "1", "name": "create_post", "input": {"content": "Test post"}}],
-            input_tokens=100,
-            output_tokens=50,
-            model="claude-sonnet-4-6",
-            stop_reason="tool_use",
-        )
+
+        def mock_tool_use(**kwargs):
+            if kwargs.get("model") == "claude-haiku-4-5":
+                return LLMResponse(
+                    text="",
+                    tool_calls=[{"id": "1", "name": "create_post", "input": {}}],
+                    input_tokens=100, output_tokens=50,
+                    model="claude-haiku-4-5", stop_reason="tool_use",
+                )
+            return LLMResponse(
+                text="",
+                tool_calls=[{"id": "1", "name": "write_content", "input": {"content": "Test post"}}],
+                input_tokens=50, output_tokens=30,
+                model="claude-sonnet-4-6", stop_reason="tool_use",
+            )
+
+        mock_client.tool_use.side_effect = mock_tool_use
 
         engine = ClaudeEngine(client=mock_client, agent_system_template="You are {{ agent_name }}. {{ persona }}")
         engine.run(profiles=profiles, config=config, platform="twitter", on_action=lambda a: None)
@@ -277,13 +297,13 @@ class TestClaudeEngineRun:
             tool_calls=[{"id": "1", "name": "do_nothing", "input": {"reason": "quiet"}}],
             input_tokens=100,
             output_tokens=50,
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5",
             stop_reason="tool_use",
         )
 
         engine = ClaudeEngine(client=mock_client, agent_system_template="You are {{ agent_name }}. {{ persona }}")
         result = engine.run(profiles=profiles, config=config, platform="twitter", on_action=lambda a: None)
 
-        assert result["input_tokens"] > 0
-        assert result["output_tokens"] > 0
+        assert result["decision_tokens"]["input"] > 0
+        assert result["decision_tokens"]["output"] > 0
         assert result["total_rounds"] >= 1

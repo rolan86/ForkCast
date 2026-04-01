@@ -244,8 +244,9 @@ def _build_agent_context(
     hot_topics: list[str],
     seed_posts: list[str],
     agent_system_template: str,
+    compress_feed: bool = False,
 ) -> dict[str, Any]:
-    """Build the system prompt and messages for one agent's turn."""
+    """Build the system prompt and messages for one agent's decision turn."""
     template = Template(agent_system_template)
     system = template.render(
         agent_name=profile.name,
@@ -257,14 +258,16 @@ def _build_agent_context(
         interests=", ".join(profile.interests),
     )
 
-    # Build user message with feed context
     parts = [f"Round {round_num}. Here is your current feed:\n"]
 
     feed = state.get_feed(agent_id=profile.agent_id, limit=10)
     if feed:
-        for post in feed:
-            comments = state.get_post_comments(post.id)
-            parts.append(post.to_feed_text(comments))
+        for i, post in enumerate(feed):
+            if compress_feed and len(feed) > 5 and i >= 3:
+                parts.append(post.to_summary_text())
+            else:
+                comments = state.get_post_comments(post.id)
+                parts.append(post.to_feed_text(comments))
             parts.append("")
     else:
         parts.append("Your feed is empty — no posts yet.\n")
@@ -288,16 +291,19 @@ def _build_agent_context(
 
 
 class ClaudeEngine:
-    """Run a simulation using Claude as the agent brain.
+    """Run a simulation using Claude as the agent brain with two-phase routing."""
 
-    For each round, active agents receive their feed and persona context,
-    Claude decides an action via tool_use, and the action is applied to
-    the in-memory simulation state.
-    """
-
-    def __init__(self, client: LLMClient, agent_system_template: str):
+    def __init__(
+        self,
+        client: LLMClient,
+        agent_system_template: str,
+        decision_model: str = "claude-haiku-4-5",
+        creative_model: str = "claude-sonnet-4-6",
+    ):
         self.client = client
         self.agent_system_template = agent_system_template
+        self.decision_model = decision_model
+        self.creative_model = creative_model
         self.state: SimulationState | None = None
         self._stopped = False
 
@@ -314,7 +320,7 @@ class ClaudeEngine:
         on_round: Callable[[int, int], None] | None = None,
         on_round_complete: Callable[[int, int], None] | None = None,
     ) -> dict[str, Any]:
-        """Run the full simulation. Returns token usage stats."""
+        """Run the full simulation. Returns per-phase token usage stats."""
         feed_weights = config.platform_config.get(
             "feed_weights", {"recency": 0.5, "popularity": 0.3, "relevance": 0.2}
         )
@@ -322,11 +328,12 @@ class ClaudeEngine:
         self._stopped = False
 
         total_rounds = math.ceil((config.total_hours * 60) / config.minutes_per_round)
-        total_input = 0
-        total_output = 0
+        decision_input = 0
+        decision_output = 0
+        creative_input = 0
+        creative_output = 0
         action_count = 0
         start_time = datetime.now(timezone.utc)
-        round_num = 0
         completed_rounds = 0
 
         for round_num in range(1, total_rounds + 1):
@@ -342,41 +349,78 @@ class ClaudeEngine:
 
             active = _determine_active_agents(profiles, config, current_hour)
 
+            # Snapshot state at round start — all agents see the same feed
+            round_snapshot = self.state.snapshot()
+            buffered_actions: list[tuple[AgentProfile, str, dict[str, Any], bool]] = []
+
             for profile in active:
                 if self._stopped:
                     break
 
                 context = _build_agent_context(
                     profile=profile,
-                    state=self.state,
+                    state=round_snapshot,
                     round_num=round_num,
                     hot_topics=config.hot_topics,
                     seed_posts=config.seed_posts if round_num == 1 else [],
                     agent_system_template=self.agent_system_template,
+                    compress_feed=config.compress_feed,
                 )
 
                 call_succeeded = True
                 try:
+                    # Phase 1: Decision
                     response = self.client.tool_use(
                         messages=context["messages"],
-                        tools=AGENT_TOOLS,
+                        tools=DECISION_TOOLS,
                         system=context["system"],
-                        max_tokens=1024,
+                        model=self.decision_model,
+                        max_tokens=256,
                         temperature=1.0,
+                        use_cache=True,
                     )
-                    total_input += response.input_tokens
-                    total_output += response.output_tokens
+                    decision_input += response.input_tokens
+                    decision_output += response.output_tokens
 
                     action_type, action_args = _parse_tool_action(response.tool_calls)
+
+                    # Phase 2: Content creation (only for creative actions)
+                    if action_type in (ActionType.CREATE_POST, ActionType.CREATE_COMMENT):
+                        creative_context = self._build_creative_context(
+                            profile=profile,
+                            action_type=action_type,
+                            action_args=action_args,
+                            state=round_snapshot,
+                            config=config,
+                        )
+                        creative_response = self.client.tool_use(
+                            messages=creative_context["messages"],
+                            tools=CREATIVE_TOOLS,
+                            system=creative_context["system"],
+                            model=self.creative_model,
+                            max_tokens=1024,
+                            temperature=1.0,
+                            use_cache=True,
+                        )
+                        creative_input += creative_response.input_tokens
+                        creative_output += creative_response.output_tokens
+
+                        content = ""
+                        if creative_response.tool_calls:
+                            content = creative_response.tool_calls[0].get("input", {}).get("content", "")
+                        action_args["content"] = content
+
                 except Exception as e:
                     logger.warning(f"Agent {profile.name} failed: {e}")
                     action_type = ActionType.DO_NOTHING
                     action_args = {"error": str(e)}
                     call_succeeded = False
 
-                # Apply action to state
-                self._apply_action(profile, action_type, action_args, timestamp)
+                buffered_actions.append((profile, action_type, action_args, call_succeeded))
 
+            # Apply all buffered actions at end of round
+            for profile, action_type, action_args, call_succeeded in buffered_actions:
+                self._apply_action(profile, action_type, action_args, timestamp)
                 action = Action(
                     round=round_num,
                     timestamp=timestamp,
@@ -398,8 +442,54 @@ class ClaudeEngine:
         return {
             "total_rounds": completed_rounds,
             "total_actions": action_count,
-            "input_tokens": total_input,
-            "output_tokens": total_output,
+            "decision_tokens": {"input": decision_input, "output": decision_output, "model": self.decision_model},
+            "creative_tokens": {"input": creative_input, "output": creative_output, "model": self.creative_model},
+        }
+
+    def _build_creative_context(
+        self,
+        profile: AgentProfile,
+        action_type: str,
+        action_args: dict[str, Any],
+        state: SimulationState,
+        config: SimulationConfig,
+    ) -> dict[str, Any]:
+        """Build the system prompt and messages for Phase 2 content generation."""
+        template = Template(self.agent_system_template)
+        system = template.render(
+            agent_name=profile.name,
+            username=profile.username,
+            platform=state.platform,
+            persona=profile.persona,
+            age=profile.age,
+            profession=profile.profession,
+            interests=", ".join(profile.interests),
+        )
+
+        parts = []
+        if action_type == ActionType.CREATE_COMMENT:
+            post_id = action_args.get("post_id", -1)
+            if 0 <= post_id < len(state.posts):
+                post = state.posts[post_id]
+                comments = state.get_post_comments(post_id)
+                parts.append(f"You decided to reply to this post:\n{post.to_feed_text(comments)}\n")
+            parts.append("Write your reply. Be specific — reference what they said.")
+        else:  # CREATE_POST
+            if config.hot_topics:
+                parts.append(f"Trending topics: {', '.join(config.hot_topics)}")
+            if config.narrative_direction:
+                parts.append(f"Context: {config.narrative_direction}")
+            if state.posts:
+                total = len(state.posts)
+                recent = state.posts[-3:] if len(state.posts) > 3 else state.posts
+                summaries = [f"@{p.author_name}: {p.content[:60]}" for p in recent]
+                parts.append(f"The conversation so far ({total} posts). Recent:")
+                parts.extend(f"  - {s}" for s in summaries)
+            parts.append("\nWrite your post. Keep it concise (1-3 sentences).")
+
+        return {
+            "system": system,
+            "messages": [{"role": "user", "content": "\n".join(parts)}],
         }
 
     def _apply_action(
