@@ -3,7 +3,7 @@ version: "1.0"
 description: >
   Product launch and startup validation. Simulates how buyers, competitors,
   investors, analysts, early adopters, partners, and media reviewers react
-  to a product announcement.
+  to a product announcement on a Product Hunt + Twitter hybrid platform.
 language: en
 sim_engine: claude
 platforms:

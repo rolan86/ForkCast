@@ -80,6 +80,12 @@ class TestPersonaPrompt:
         for concept in ["market position", "risk tolerance", "pricing"]:
             assert concept in content_lower, f"Persona prompt should mention '{concept}'"
 
+    def test_persona_prompt_specifies_all_output_fields(self, domain):
+        content = read_prompt(domain, "persona")
+        for field in ["name", "username", "bio", "persona", "age", "gender",
+                       "profession", "interests"]:
+            assert field in content, f"Persona prompt should specify output field '{field}'"
+
 
 class TestPersonaBatchPrompt:
     def test_persona_batch_prompt_not_placeholder(self, domain):
@@ -113,6 +119,13 @@ class TestConfigGenPrompt:
         content_lower = content.lower()
         assert "launch" in content_lower
         assert "peak" in content_lower
+        assert "24-96" in content, "Config gen should specify 24-96 hour range"
+        assert "15-30" in content, "Config gen should specify 15-30 min/round"
+
+    def test_config_gen_prompt_specifies_platform_config(self, domain):
+        content = read_prompt(domain, "config_generation")
+        assert "popularity=0.4" in content, "Config gen should specify popularity weight 0.4"
+        assert "0.2-0.4" in content, "Config gen should specify echo chamber strength 0.2-0.4"
 
 
 class TestAgentSystemPrompt:

@@ -13,6 +13,8 @@ Focus on extracting:
 
 Every entity type should represent someone who would have a strong, distinct opinion about a product launch. If an entity wouldn't react to a new product announcement — wouldn't post about it, evaluate it, fear it, or celebrate it — it probably shouldn't be an entity type.
 
-Relationship types should capture market dynamics: competes_with, targets, invests_in, reviews, integrates_with, influences, disrupts, evaluates, depends_on, partners_with.
+Identify up to 10 entity types. The last 2 must always be Person and Organization as fallbacks.
+
+Identify 6-10 relationship types that capture market dynamics: competes_with, targets, invests_in, reviews, integrates_with, influences, disrupts, evaluates, depends_on, partners_with.
 
 Return ONLY valid JSON with no markdown formatting.
