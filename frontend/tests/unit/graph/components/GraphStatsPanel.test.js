@@ -50,6 +50,20 @@ describe('GraphStatsPanel', () => {
       expect(wrapper.props('layout')).toBe('force')
     })
 
+    it('should accept fps prop', () => {
+      const fpsWrapper = mount(GraphStatsPanel, {
+        props: { ...defaultProps, fps: 45 },
+      })
+      expect(fpsWrapper.props('fps')).toBe(45)
+    })
+
+    it('should accept visualMode prop', () => {
+      const modeWrapper = mount(GraphStatsPanel, {
+        props: { ...defaultProps, visualMode: '3d' },
+      })
+      expect(modeWrapper.props('visualMode')).toBe('3d')
+    })
+
     it('should use default values for missing props', () => {
       const defaultWrapper = mount(GraphStatsPanel)
       expect(defaultWrapper.props('nodeCount')).toBe(0)
@@ -57,6 +71,8 @@ describe('GraphStatsPanel', () => {
       expect(defaultWrapper.props('clusterCount')).toBe(0)
       expect(defaultWrapper.props('selectedCount')).toBe(0)
       expect(defaultWrapper.props('layout')).toBe('force')
+      expect(defaultWrapper.props('fps')).toBe(null)
+      expect(defaultWrapper.props('visualMode')).toBe('2d')
     })
   })
 
@@ -100,7 +116,7 @@ describe('GraphStatsPanel', () => {
       const clusterStat = wrapper.findAll('.stat.secondary').find(
         stat => stat.text().includes('Clusters')
       )
-      expect(clusterStat?.exists()).toBe(false)
+      expect(clusterStat).toBeUndefined()
     })
 
     it('should display selected count when greater than 0', () => {
@@ -116,7 +132,7 @@ describe('GraphStatsPanel', () => {
       const selectedStat = wrapper.findAll('.stat.secondary').find(
         stat => stat.text().includes('Selected')
       )
-      expect(selectedStat?.exists()).toBe(false)
+      expect(selectedStat).toBeUndefined()
     })
 
     it('should apply highlight styling to selected stat', () => {
@@ -134,59 +150,95 @@ describe('GraphStatsPanel', () => {
       expect(layoutStat?.text()).toContain('force')
     })
 
-    it('should display connection density', () => {
-      const densityStat = wrapper.findAll('.stat.secondary').find(
-        stat => stat.text().includes('Density')
+    it('should display average connections', () => {
+      const connStat = wrapper.findAll('.stat.secondary').find(
+        stat => stat.text().includes('Avg Conn')
       )
-      expect(densityStat?.exists()).toBe(true)
-      // For 100 nodes and 250 edges, density = 250 / (100*99/2) = 250/4950 ≈ 5.05%
-      expect(densityStat?.text()).toContain('%')
+      expect(connStat?.exists()).toBe(true)
     })
   })
 
-  describe('connection density calculation', () => {
-    it('should calculate density correctly for connected graph', () => {
-      // 4 nodes, 6 edges (complete graph K4) = 100% density
-      await wrapper.setProps({ nodeCount: 4, edgeCount: 6 })
-      const densityStat = wrapper.findAll('.stat.secondary').find(
-        stat => stat.text().includes('Density')
+  describe('FPS display (3D mode)', () => {
+    it('should not display FPS when visualMode is 2d', () => {
+      const fpsWrapper = mount(GraphStatsPanel, {
+        props: { ...defaultProps, fps: 45, visualMode: '2d' },
+      })
+      const fpsStat = fpsWrapper.findAll('.stat.secondary').find(
+        stat => stat.text().includes('FPS')
       )
-      expect(densityStat?.text()).toContain('100%')
+      expect(fpsStat).toBeUndefined()
     })
 
-    it('should calculate density correctly for sparse graph', () => {
-      // 100 nodes, 50 edges = sparse graph
-      await wrapper.setProps({ nodeCount: 100, edgeCount: 50 })
-      const densityStat = wrapper.findAll('.stat.secondary').find(
-        stat => stat.text().includes('Density')
+    it('should not display FPS when fps is null', () => {
+      const fpsWrapper = mount(GraphStatsPanel, {
+        props: { ...defaultProps, fps: null, visualMode: '3d' },
+      })
+      const fpsStat = fpsWrapper.findAll('.stat.secondary').find(
+        stat => stat.text().includes('FPS')
       )
-      const densityText = densityStat?.text() || ''
-      const densityValue = parseInt(densityText.replace('%', ''))
-      expect(densityValue).toBeGreaterThan(0)
-      expect(densityValue).toBeLessThan(5)
+      expect(fpsStat).toBeUndefined()
     })
 
-    it('should return 0 density for single node', async () => {
-      await wrapper.setProps({ nodeCount: 1, edgeCount: 0 })
-      const densityStat = wrapper.findAll('.stat.secondary').find(
-        stat => stat.text().includes('Density')
+    it('should display FPS when in 3d mode with fps value', () => {
+      const fpsWrapper = mount(GraphStatsPanel, {
+        props: { ...defaultProps, fps: 45, visualMode: '3d' },
+      })
+      const fpsStat = fpsWrapper.findAll('.stat.secondary').find(
+        stat => stat.text().includes('FPS')
       )
-      expect(densityStat?.text()).toContain('0%')
+      expect(fpsStat?.exists()).toBe(true)
+      expect(fpsStat?.text()).toContain('45')
+    })
+
+    it('should round FPS value for display', () => {
+      const fpsWrapper = mount(GraphStatsPanel, {
+        props: { ...defaultProps, fps: 45.7, visualMode: '3d' },
+      })
+      const fpsStat = fpsWrapper.findAll('.stat.secondary').find(
+        stat => stat.text().includes('FPS')
+      )
+      expect(fpsStat?.text()).toContain('46')
+    })
+
+    it('should apply fps-low class when fps < 20', () => {
+      const fpsWrapper = mount(GraphStatsPanel, {
+        props: { ...defaultProps, fps: 15, visualMode: '3d' },
+      })
+      const fpsValue = fpsWrapper.find('.fps-low')
+      expect(fpsValue.exists()).toBe(true)
+      expect(fpsValue.text()).toContain('15')
+    })
+
+    it('should not apply fps-low class when fps >= 20', () => {
+      const fpsWrapper = mount(GraphStatsPanel, {
+        props: { ...defaultProps, fps: 30, visualMode: '3d' },
+      })
+      const fpsValue = fpsWrapper.findAll('.stat-value').find(
+        val => val.text().includes('30')
+      )
+      expect(fpsValue?.classes()).not.toContain('fps-low')
+    })
+
+    it('should update FPS display reactively', async () => {
+      const fpsWrapper = mount(GraphStatsPanel, {
+        props: { ...defaultProps, fps: 45, visualMode: '3d' },
+      })
+      expect(fpsWrapper.text()).toContain('45')
+
+      await fpsWrapper.setProps({ fps: 30 })
+      expect(fpsWrapper.text()).toContain('30')
     })
   })
 
   describe('icons', () => {
-    it('should display emoji icons for stats', () => {
+    it('should display lucide icons for stats', () => {
       const icons = wrapper.findAll('.stat-icon')
       expect(icons.length).toBeGreaterThan(0)
-      icons.forEach(icon => {
-        expect(icon.text().length).toBeGreaterThan(0)
-      })
     })
   })
 
   describe('stat value formatting', () => {
-    it('should format numbers below 1000 as-is', () => {
+    it('should format numbers below 1000 as-is', async () => {
       await wrapper.setProps({ nodeCount: 999 })
       const nodeStat = wrapper.findAll('.stat.primary').find(
         stat => stat.text().includes('Nodes')
@@ -308,6 +360,19 @@ describe('GraphStatsPanel', () => {
 
       await wrapper.setProps({ selectedCount: 0 })
       expect(wrapper.text()).not.toContain('Selected')
+    })
+
+    it('should show/hide FPS stat based on visualMode and fps', async () => {
+      const fpsWrapper = mount(GraphStatsPanel, {
+        props: { ...defaultProps, fps: 45, visualMode: '2d' },
+      })
+      expect(fpsWrapper.text()).not.toContain('FPS')
+
+      await fpsWrapper.setProps({ visualMode: '3d' })
+      expect(fpsWrapper.text()).toContain('45')
+
+      await fpsWrapper.setProps({ fps: null })
+      expect(fpsWrapper.text()).not.toContain('FPS')
     })
   })
 })

@@ -9,7 +9,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { BarChart3, Link, Package, Check, Settings, TrendingUp } from 'lucide-vue-next'
+import { BarChart3, Link, Package, Check, Settings, TrendingUp, Activity } from 'lucide-vue-next'
 
 // Props
 const props = defineProps({
@@ -32,6 +32,14 @@ const props = defineProps({
   layout: {
     type: String,
     default: 'force',
+  },
+  fps: {
+    type: Number,
+    default: null,
+  },
+  visualMode: {
+    type: String,
+    default: '2d',
   },
 })
 
@@ -108,6 +116,17 @@ const avgConnections = computed(() => {
         <div class="stat-content">
           <span class="stat-value">{{ avgConnections }}</span>
           <span class="stat-label">Avg Conn</span>
+        </div>
+      </div>
+
+      <div
+        v-if="props.visualMode === '3d' && props.fps !== null"
+        class="stat secondary"
+      >
+        <Activity :size="14" class="stat-icon" />
+        <div class="stat-content">
+          <span class="stat-value" :class="{ 'fps-low': props.fps < 20 }">{{ Math.round(props.fps) }}</span>
+          <span class="stat-label">FPS</span>
         </div>
       </div>
     </div>
@@ -193,6 +212,10 @@ const avgConnections = computed(() => {
   letter-spacing: 0.5px;
   font-weight: 600;
   color: var(--text-tertiary);
+}
+
+.fps-low {
+  color: var(--color-error, #ef4444);
 }
 
 @media (max-width: 640px) {
