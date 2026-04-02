@@ -216,6 +216,13 @@ async function renderGraph() {
   // Destroy 3D renderer if switching away from 3D
   graph3DRenderer.destroy()
 
+  // Re-bind 2D renderer (destroy() nullifies _container when entering 3D)
+  if (svgContainer.value) {
+    renderer.bind(svgContainer.value, () => {
+      if (graphData.value) renderGraph()
+    })
+  }
+
   // Existing 2D rendering
   renderer.render(graphData.value, renderOptions())
   setupLassoEvents()
