@@ -46,6 +46,7 @@ class OllamaClient:
         model: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 1.0,
+        **kwargs: Any,
     ) -> LLMResponse:
         """Call with tools, falling back to structured prompting if unsupported."""
         openai_tools = self._translate_tools(tools)
