@@ -242,7 +242,11 @@ def _generate_batch(
         system=system,
         max_tokens=16000,
     )
-    parsed = json.loads(strip_code_fences(response.text))
+    try:
+        parsed = json.loads(strip_code_fences(response.text))
+    except json.JSONDecodeError:
+        logger.warning("Batch JSON parse failed, returning empty batch for individual fallback")
+        return [], {"input": response.input_tokens, "output": response.output_tokens}
     if not isinstance(parsed, list):
         parsed = [parsed]
 

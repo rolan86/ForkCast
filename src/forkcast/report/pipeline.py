@@ -289,8 +289,8 @@ def generate_report(
             total_input_tokens += response.input_tokens
             total_output_tokens += response.output_tokens
 
-            # Append assistant message — use raw content blocks if available
-            raw_content = response.raw.content if response.raw is not None else []
+            # Append assistant message — use raw content blocks if available (Anthropic SDK only)
+            raw_content = getattr(response.raw, "content", None) if response.raw is not None else None
             messages.append({"role": "assistant", "content": raw_content if raw_content else response.text})
 
             if not response.tool_calls:

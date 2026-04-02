@@ -119,6 +119,7 @@ def sim_prepare(
             client=client,
             domains_dir=settings.domains_dir,
             on_progress=on_progress,
+            prep_model=model or settings.ollama_model if (provider or settings.llm_provider) == "ollama" else model,
         )
     except Exception as e:
         typer.echo(f"Error: {e}", err=True)
@@ -208,6 +209,15 @@ def sim_start(
     if sim["status"] != "prepared":
         typer.echo(f"Error: Simulation must be 'prepared' to start (current: {sim['status']})", err=True)
         raise typer.Exit(code=1)
+
+    # When using Ollama, default decision/creative models to the Ollama model
+    effective_provider = provider or settings.llm_provider
+    if effective_provider == "ollama":
+        ollama_model_name = model or settings.ollama_model
+        if decision_model is None:
+            decision_model = ollama_model_name
+        if creative_model is None:
+            creative_model = ollama_model_name
 
     # Merge optimization CLI flags into config_json before running
     config_overrides = {}

@@ -136,10 +136,65 @@ class OllamaClient:
     # --- Private helpers ---
 
     def _prepend_system(self, messages: list[dict], system: str | None) -> list[dict]:
-        """Prepend system message to messages list (OpenAI format)."""
+        """Prepend system message and translate Anthropic-format messages to OpenAI format."""
+        translated = []
+        for msg in messages:
+            translated.extend(self._translate_message(msg))
         if system:
-            return [{"role": "system", "content": system}] + list(messages)
-        return list(messages)
+            return [{"role": "system", "content": system}] + translated
+        return translated
+
+    def _translate_message(self, msg: dict) -> list[dict]:
+        """Translate a single message from Anthropic to OpenAI format if needed."""
+        role = msg.get("role", "user")
+        content = msg.get("content")
+
+        # String content — pass through
+        if isinstance(content, str):
+            return [{"role": role, "content": content}]
+
+        # List content — could be Anthropic content blocks or tool results
+        if isinstance(content, list):
+            # Check if these are Anthropic tool_result blocks
+            if content and isinstance(content[0], dict) and content[0].get("type") == "tool_result":
+                results = []
+                for block in content:
+                    results.append({
+                        "role": "tool",
+                        "tool_call_id": block.get("tool_use_id", "unknown"),
+                        "content": block.get("content", ""),
+                    })
+                return results
+
+            # Check if these are Anthropic content blocks (text + tool_use)
+            if content and isinstance(content[0], dict):
+                # Extract text and tool calls from assistant content blocks
+                text_parts = []
+                tool_calls = []
+                for block in content:
+                    block_type = getattr(block, "type", None) or block.get("type", "")
+                    if block_type == "text":
+                        text_parts.append(getattr(block, "text", None) or block.get("text", ""))
+                    elif block_type == "tool_use":
+                        tc_id = getattr(block, "id", None) or block.get("id", "unknown")
+                        tc_name = getattr(block, "name", None) or block.get("name", "")
+                        tc_input = getattr(block, "input", None) or block.get("input", {})
+                        tool_calls.append({
+                            "id": tc_id,
+                            "type": "function",
+                            "function": {
+                                "name": tc_name,
+                                "arguments": json.dumps(tc_input) if isinstance(tc_input, dict) else str(tc_input),
+                            },
+                        })
+
+                result: dict[str, Any] = {"role": role, "content": "\n".join(text_parts) if text_parts else ""}
+                if tool_calls:
+                    result["tool_calls"] = tool_calls
+                return [result]
+
+        # Fallback — pass through as-is
+        return [{"role": role, "content": str(content) if content else ""}]
 
     def _translate_tools(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Translate Anthropic tool schema to OpenAI function-calling format."""
