@@ -17,6 +17,22 @@ export function getParticleConfig(weight) {
   }
 }
 
+/**
+ * Config for neuron firing style.
+ * High-energy particle bursts along curved paths — like synapses firing.
+ * @param {number} weight — edge weight 0..1
+ * @returns {{ curvature: number, speed: number, emissionRate: number, particleWidth: number }}
+ */
+export function getNeuronConfig(weight) {
+  const w = Math.max(0.1, Math.min(weight, 1))
+  return {
+    curvature: 0.25 + (1 - w) * 0.2,
+    speed: 6 + w * 12,
+    emissionRate: 3 + w * 5,
+    particleWidth: 2.5,
+  }
+}
+
 export function getAdaptiveStyle(cameraDistance) {
   if (cameraDistance > ADAPTIVE_THRESHOLDS.overviewDistance) return 'straight'
   if (cameraDistance > ADAPTIVE_THRESHOLDS.closeUpDistance) return CONNECTION_STYLES.CURVED

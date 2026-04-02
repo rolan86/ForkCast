@@ -210,6 +210,7 @@ const interactionModeOptions = computed(() => [
             <option value="curved">Curved Paths</option>
             <option value="particle">Particle Flow — GPU heavy</option>
             <option value="adaptive">Adaptive — Auto-optimizes</option>
+            <option value="neuron">Neuron Fire — GPU heavy</option>
           </select>
         </div>
 

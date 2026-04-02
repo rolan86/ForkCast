@@ -171,6 +171,7 @@ export const CONNECTION_STYLES = {
   CURVED: 'curved',
   PARTICLE: 'particle',
   ADAPTIVE: 'adaptive',
+  NEURON: 'neuron',
 }
 
 /**

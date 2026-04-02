@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   getCurvedConfig,
   getParticleConfig,
+  getNeuronConfig,
   getAdaptiveStyle,
   getEdgeOpacity,
   getEdgeWidth,
@@ -33,6 +34,20 @@ describe('connectionStyles', () => {
       const cfg = getParticleConfig(0.5)
       expect(cfg.emissionRate).toBeGreaterThanOrEqual(1)
       expect(cfg.emissionRate).toBeLessThanOrEqual(3)
+    })
+  })
+
+  describe('getNeuronConfig', () => {
+    it('returns higher speed and emission than particle config', () => {
+      const neuron = getNeuronConfig(0.5)
+      const particle = getParticleConfig(0.5)
+      expect(neuron.speed).toBeGreaterThan(particle.speed)
+      expect(neuron.emissionRate).toBeGreaterThan(particle.emissionRate)
+    })
+
+    it('returns curvature', () => {
+      const cfg = getNeuronConfig(0.5)
+      expect(cfg.curvature).toBeGreaterThan(0)
     })
   })
 
