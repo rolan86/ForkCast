@@ -171,21 +171,31 @@ export function useGraph3DRenderer() {
     pointLight.position.set(200, 200, 200)
     scene.add(pointLight)
 
-    // Pulse animation loop
-    if (options.pulseEnabled !== false && totalNodes < RENDER_CONFIG_3D.pulseDisableThreshold) {
-      const startTime = performance.now()
-      const animate = () => {
-        _animationFrame.value = requestAnimationFrame(animate)
-        _trackFps()
-        const scale = getPulseScale(performance.now() - startTime)
+    // Animation loop — drives pulse AND lightning restrikes continuously
+    const pulseEnabled = options.pulseEnabled !== false && totalNodes < RENDER_CONFIG_3D.pulseDisableThreshold
+    const startTime = performance.now()
+
+    const animate = () => {
+      _animationFrame.value = requestAnimationFrame(animate)
+      _trackFps()
+      const now = performance.now()
+
+      // Pulse animation
+      if (pulseEnabled) {
+        const scale = getPulseScale(now - startTime)
         const { nodes: currentNodes } = graph.graphData()
         currentNodes.forEach(node => {
           const obj = node.__threeObj
           if (obj) obj.scale.setScalar(scale)
         })
       }
-      animate()
+
+      // Lightning restrike animation (runs independent of force simulation)
+      if (_neuronActive) {
+        _animateLightning(graph, now)
+      }
     }
+    animate()
 
     _graph.value = graph
   }
@@ -319,45 +329,54 @@ export function useGraph3DRenderer() {
     })
     graph.linkThreeObjectExtend(false)
 
-    // Position update — place lightning along actual edge positions
+    // Position update — capture latest endpoint positions into userData
+    // (called by library during simulation ticks, NOT during camera-only movement)
     graph.linkPositionUpdate((obj, { start, end }) => {
-      if (!obj || !obj.children || obj.children.length < 3) return true
-
-      const ud = obj.userData
-      const now = performance.now()
-
-      // Restrike throttle
-      if (now - ud.lastRestrike < ud.restrikeInterval) return true
-      ud.lastRestrike = now
-
-      // Keep object at origin — we use world-space coordinates directly
+      if (!obj) return true
+      // Store world-space endpoints so our animation loop can use them
+      obj.userData.start = { x: start.x, y: start.y, z: start.z }
+      obj.userData.end = { x: end.x, y: end.y, z: end.z }
       obj.position.set(0, 0, 0)
       obj.quaternion.identity()
+      return true
+    })
+  }
 
-      // Generate the core bolt path (fractal midpoint displacement)
+  function _animateLightning(graph, now) {
+    const { links } = graph.graphData()
+    links.forEach(link => {
+      const obj = link.__lineObj
+      if (!obj || !obj.children || obj.children.length < 3) return
+
+      const ud = obj.userData
+      if (!ud.start || !ud.end) return
+
+      // Restrike throttle
+      if (now - ud.lastRestrike < ud.restrikeInterval) return
+      ud.lastRestrike = now
+
+      // Generate fractal lightning path
       const points = generateLightningPath(
-        start, end, ud.generations, ud.displacement, ud.roughness,
+        ud.start, ud.end, ud.generations, ud.displacement, ud.roughness,
       )
 
-      // Core line
+      // Core line (child 2)
       _updateLinePositions(obj.children[2], points)
 
-      // Mid glow — same path, slight random offset for thickness illusion
+      // Mid glow (child 1) — same path
       _updateLinePositions(obj.children[1], points)
 
-      // Outer glow — slightly different path for shimmer
+      // Outer glow (child 0) — slightly different path for shimmer
       const outerPoints = generateLightningPath(
-        start, end, ud.generations, ud.displacement * 1.2, ud.roughness,
+        ud.start, ud.end, ud.generations, ud.displacement * 1.2, ud.roughness,
       )
       _updateLinePositions(obj.children[0], outerPoints)
 
-      // Opacity flicker — rapid brightness variation like real lightning
+      // Opacity flicker
       const flicker = 0.7 + Math.random() * 0.3
       obj.children[2].material.opacity = 0.9 * flicker
       obj.children[1].material.opacity = ud.glowOpacity * flicker
       obj.children[0].material.opacity = ud.glowOpacity * 0.4 * (0.5 + Math.random() * 0.5)
-
-      return true // Prevent library from overriding our positioning
     })
   }
 
