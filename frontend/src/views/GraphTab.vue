@@ -175,57 +175,65 @@ function zoomIn() { renderer.zoomIn() }
 function zoomOut() { renderer.zoomOut() }
 function zoomReset() { renderer.zoomReset() }
 
+let _rendering = false
+
 async function renderGraph() {
+  if (_rendering) return
   if (!svgContainer.value || !graphData.value) return
 
-  const width = svgContainer.value.clientWidth
-  const height = svgContainer.value.clientHeight
+  _rendering = true
+  try {
+    const width = svgContainer.value.clientWidth
+    const height = svgContainer.value.clientHeight
 
-  if (graphState.visualMode === VISUAL_MODES.THREE_D) {
-    // Destroy 2D renderer if active
-    renderer.destroy()
+    if (graphState.visualMode === VISUAL_MODES.THREE_D) {
+      // Destroy 2D renderer if active
+      renderer.destroy()
 
-    await graph3DRenderer.render(
-      svgContainer.value,
-      graphData.value,
-      width,
-      height,
-      {
-        connectionStyle: graphState.settings3d.connectionStyle,
-        glowEnabled: graphState.settings3d.glowEnabled,
-        pulseEnabled: graphState.settings3d.pulseEnabled,
-        autoRotate: graphState.settings3d.autoRotate,
-      },
-    )
+      await graph3DRenderer.render(
+        svgContainer.value,
+        graphData.value,
+        width,
+        height,
+        {
+          connectionStyle: graphState.settings3d.connectionStyle,
+          glowEnabled: graphState.settings3d.glowEnabled,
+          pulseEnabled: graphState.settings3d.pulseEnabled,
+          autoRotate: graphState.settings3d.autoRotate,
+        },
+      )
 
-    // Wire up click handler with double-click detection for dive-in
-    let lastClickTime = 0
-    graph3DRenderer.onNodeClick(node => {
-      const now = Date.now()
-      if (now - lastClickTime < 300 && node) {
-        graph3DRenderer.diveIn(node)
-      } else if (node) {
-        selectNode(node)
-      }
-      lastClickTime = now
-    })
+      // Wire up click handler with double-click detection for dive-in
+      let lastClickTime = 0
+      graph3DRenderer.onNodeClick(node => {
+        const now = Date.now()
+        if (now - lastClickTime < 300 && node) {
+          graph3DRenderer.diveIn(node)
+        } else if (node) {
+          selectNode(node)
+        }
+        lastClickTime = now
+      })
 
-    return
+      return
+    }
+
+    // Destroy 3D renderer if switching away from 3D
+    graph3DRenderer.destroy()
+
+    // Re-bind 2D renderer only if it lost its container (after switching from 3D)
+    if (!renderer.hasContainer()) {
+      renderer.bind(svgContainer.value, () => {
+        if (graphData.value) renderGraph()
+      })
+    }
+
+    // Existing 2D rendering
+    renderer.render(graphData.value, renderOptions())
+    setupLassoEvents()
+  } finally {
+    _rendering = false
   }
-
-  // Destroy 3D renderer if switching away from 3D
-  graph3DRenderer.destroy()
-
-  // Re-bind 2D renderer (destroy() nullifies _container when entering 3D)
-  if (svgContainer.value) {
-    renderer.bind(svgContainer.value, () => {
-      if (graphData.value) renderGraph()
-    })
-  }
-
-  // Existing 2D rendering
-  renderer.render(graphData.value, renderOptions())
-  setupLassoEvents()
 }
 
 function renderOptions() {
