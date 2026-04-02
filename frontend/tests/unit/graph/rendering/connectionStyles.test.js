@@ -39,16 +39,18 @@ describe('connectionStyles', () => {
   })
 
   describe('getNeuronConfig', () => {
-    it('returns segments and jitter for lightning generation', () => {
+    it('returns fractal subdivision parameters', () => {
       const cfg = getNeuronConfig(0.5)
-      expect(cfg.segments).toBeGreaterThan(10)
-      expect(cfg.jitter).toBeGreaterThan(0)
+      expect(cfg.generations).toBe(5)
+      expect(cfg.displacement).toBeGreaterThan(0)
+      expect(cfg.roughness).toBeGreaterThan(0)
+      expect(cfg.roughness).toBeLessThan(1)
     })
 
-    it('more segments for higher weight', () => {
+    it('higher weight means less displacement (tighter bolts)', () => {
       const weak = getNeuronConfig(0.1)
       const strong = getNeuronConfig(1.0)
-      expect(strong.segments).toBeGreaterThan(weak.segments)
+      expect(weak.displacement).toBeGreaterThan(strong.displacement)
     })
 
     it('returns glow opacity and restrike interval', () => {
@@ -57,58 +59,88 @@ describe('connectionStyles', () => {
       expect(cfg.glowOpacity).toBeLessThanOrEqual(1)
       expect(cfg.restrikeInterval).toBeGreaterThan(0)
     })
+
+    it('faster restrike for higher weight (more active synapses)', () => {
+      const weak = getNeuronConfig(0.1)
+      const strong = getNeuronConfig(1.0)
+      expect(strong.restrikeInterval).toBeLessThan(weak.restrikeInterval)
+    })
   })
 
-  describe('generateLightningPath', () => {
+  describe('generateLightningPath (fractal midpoint displacement)', () => {
     const start = { x: 0, y: 0, z: 0 }
     const end = { x: 10, y: 0, z: 0 }
 
-    it('returns start and end points with intermediate segments', () => {
-      const points = generateLightningPath(start, end, 5, 1.0)
-      expect(points.length).toBe(7) // start + 5 segments + end
-      expect(points[0]).toEqual(start)
-      expect(points[6]).toEqual(end)
+    it('returns 2^generations + 1 points', () => {
+      const points = generateLightningPath(start, end, 3, 0.4, 0.55)
+      // 3 generations: start with 2 points, each gen doubles segments
+      // gen 0: 2→3, gen 1: 3→5, gen 2: 5→9 = 2^3 + 1 = 9
+      expect(points.length).toBe(9)
     })
 
-    it('intermediate points are displaced from the straight line', () => {
+    it('first and last points match start and end', () => {
+      const points = generateLightningPath(start, end, 5, 0.4, 0.55)
+      expect(points[0]).toEqual(start)
+      expect(points[points.length - 1]).toEqual(end)
+    })
+
+    it('intermediate points are displaced from straight line', () => {
       // Use deterministic rng that always returns 0.9 (off-center)
       const rng = () => 0.9
-      const points = generateLightningPath(start, end, 5, 3.0, rng)
-
-      // At least one intermediate point should be displaced in y or z
+      const points = generateLightningPath(start, end, 4, 0.5, 0.55, rng)
       const intermediates = points.slice(1, -1)
       const hasDisplacement = intermediates.some(
-        p => Math.abs(p.y) > 0.1 || Math.abs(p.z) > 0.1,
+        p => Math.abs(p.y) > 0.01 || Math.abs(p.z) > 0.01,
       )
       expect(hasDisplacement).toBe(true)
     })
 
-    it('jitter is tapered toward endpoints (envelope)', () => {
-      // Use fixed rng to isolate envelope effect
-      const rng = () => 1.0 // max displacement
-      const points = generateLightningPath(start, end, 10, 5.0, rng)
+    it('higher generations produce more points', () => {
+      const few = generateLightningPath(start, end, 3, 0.4, 0.55)
+      const many = generateLightningPath(start, end, 6, 0.4, 0.55)
+      expect(many.length).toBeGreaterThan(few.length)
+    })
 
-      // Middle point should have more displacement than points near edges
-      const mid = points[6] // ~middle
-      const nearStart = points[1] // near start
-      const midDisp = Math.sqrt(mid.y * mid.y + mid.z * mid.z)
-      const nearDisp = Math.sqrt(nearStart.y * nearStart.y + nearStart.z * nearStart.z)
-      expect(midDisp).toBeGreaterThan(nearDisp)
+    it('roughness < 1 means later generations have less displacement', () => {
+      // Compare two runs with same seed: low roughness should be smoother
+      let callCount = 0
+      const deterministicRng = () => { callCount++; return 0.8 }
+
+      const rough = generateLightningPath(start, end, 4, 0.5, 0.9, deterministicRng)
+      callCount = 0
+      const smooth = generateLightningPath(start, end, 4, 0.5, 0.3, deterministicRng)
+
+      // With same rng, lower roughness should produce less total displacement
+      const roughMaxDisp = Math.max(...rough.slice(1, -1).map(p => Math.abs(p.y) + Math.abs(p.z)))
+      const smoothMaxDisp = Math.max(...smooth.slice(1, -1).map(p => Math.abs(p.y) + Math.abs(p.z)))
+      expect(roughMaxDisp).toBeGreaterThan(smoothMaxDisp)
     })
 
     it('handles zero-length edges gracefully', () => {
       const same = { x: 5, y: 5, z: 5 }
-      const points = generateLightningPath(same, same, 5, 2.0)
-      expect(points.length).toBe(2) // just start and end
+      const points = generateLightningPath(same, same, 5, 0.4, 0.55)
+      expect(points.length).toBe(2)
     })
 
-    it('works in 3D (not just along x-axis)', () => {
+    it('works in 3D (diagonal edges)', () => {
       const s = { x: 0, y: 0, z: 0 }
       const e = { x: 5, y: 5, z: 5 }
-      const points = generateLightningPath(s, e, 8, 2.0)
-      expect(points.length).toBe(10)
+      const points = generateLightningPath(s, e, 4, 0.4, 0.55)
+      expect(points.length).toBe(17) // 2^4 + 1
       expect(points[0]).toEqual(s)
-      expect(points[9]).toEqual(e)
+      expect(points[16]).toEqual(e)
+    })
+
+    it('accepts custom rng for deterministic output', () => {
+      let counter = 0
+      const rng = () => { counter++; return 0.5 }
+      const p1 = generateLightningPath(start, end, 3, 0.4, 0.55, rng)
+
+      counter = 0
+      const p2 = generateLightningPath(start, end, 3, 0.4, 0.55, rng)
+
+      // Same rng sequence → same points
+      expect(p1).toEqual(p2)
     })
   })
 

@@ -20,76 +20,115 @@ export function getParticleConfig(weight) {
 /**
  * Config for neuron firing style — lightning arcs between nodes.
  * @param {number} weight — edge weight 0..1
- * @returns {{ segments: number, jitter: number, glowOpacity: number, restrikeInterval: number }}
  */
 export function getNeuronConfig(weight) {
   const w = Math.max(0.1, Math.min(weight, 1))
   return {
-    segments: 12 + Math.floor(w * 8),
-    jitter: 1.5 + (1 - w) * 2.5,
-    glowOpacity: 0.3 + w * 0.4,
-    restrikeInterval: 80 + (1 - w) * 120,
+    generations: 5,
+    displacement: 0.35 + (1 - w) * 0.15,
+    roughness: 0.55,
+    glowOpacity: 0.15 + w * 0.2,
+    restrikeInterval: 60 + (1 - w) * 100,
   }
 }
 
 /**
- * Generate jagged lightning bolt points between two 3D positions.
- * Pure function — no Three.js dependency. Returns array of {x,y,z} points.
- *
- * @param {{ x: number, y: number, z: number }} start
- * @param {{ x: number, y: number, z: number }} end
- * @param {number} segments — number of intermediate points
- * @param {number} jitter — max perpendicular displacement
- * @param {function} [rng] — random number generator (0..1), defaults to Math.random
- * @returns {Array<{ x: number, y: number, z: number }>}
+ * Build two perpendicular unit vectors to a direction vector.
+ * Pure helper — no Three.js dependency.
  */
-export function generateLightningPath(start, end, segments, jitter, rng = Math.random) {
-  const points = [{ x: start.x, y: start.y, z: start.z }]
-
-  const dx = end.x - start.x
-  const dy = end.y - start.y
-  const dz = end.z - start.z
-
-  // Build two perpendicular vectors for displacement
-  // Use cross product with an arbitrary axis to get perpendiculars
+function _perpendicularBasis(dx, dy, dz) {
   const len = Math.sqrt(dx * dx + dy * dy + dz * dz)
-  if (len < 0.001) return [start, end]
+  if (len < 0.001) return null
 
   const nx = dx / len, ny = dy / len, nz = dz / len
 
-  // Pick an axis not parallel to the direction
+  // Cross with an axis not parallel to direction
   const ax = Math.abs(nx) < 0.9 ? 1 : 0
   const ay = Math.abs(nx) < 0.9 ? 0 : 1
 
-  // perpendicular 1 = direction × arbitrary
   const p1x = ny * 0 - nz * ay
   const p1y = nz * ax - nx * 0
   const p1z = nx * ay - ny * ax
   const p1len = Math.sqrt(p1x * p1x + p1y * p1y + p1z * p1z) || 1
-  const u1x = p1x / p1len, u1y = p1y / p1len, u1z = p1z / p1len
+  const u1 = { x: p1x / p1len, y: p1y / p1len, z: p1z / p1len }
 
-  // perpendicular 2 = direction × perp1
-  const u2x = ny * u1z - nz * u1y
-  const u2y = nz * u1x - nx * u1z
-  const u2z = nx * u1y - ny * u1x
-
-  for (let i = 1; i <= segments; i++) {
-    const t = i / (segments + 1)
-    // Taper jitter toward endpoints (max in middle)
-    const envelope = 4 * t * (1 - t)
-    const j = jitter * envelope
-
-    const offsetA = (rng() - 0.5) * 2 * j
-    const offsetB = (rng() - 0.5) * 2 * j
-
-    points.push({
-      x: start.x + dx * t + u1x * offsetA + u2x * offsetB,
-      y: start.y + dy * t + u1y * offsetA + u2y * offsetB,
-      z: start.z + dz * t + u1z * offsetA + u2z * offsetB,
-    })
+  const u2 = {
+    x: ny * u1.z - nz * u1.y,
+    y: nz * u1.x - nx * u1.z,
+    z: nx * u1.y - ny * u1.x,
   }
 
-  points.push({ x: end.x, y: end.y, z: end.z })
+  return { u1, u2 }
+}
+
+/**
+ * Generate lightning bolt points using recursive midpoint displacement.
+ * Each recursion halves the segment and reduces displacement by the roughness
+ * factor, creating the characteristic "large bends + fine detail" hierarchy
+ * that makes lightning look realistic.
+ *
+ * @param {{ x: number, y: number, z: number }} start
+ * @param {{ x: number, y: number, z: number }} end
+ * @param {number} generations — recursion depth (5 = ~32 segments)
+ * @param {number} displacement — initial displacement as fraction of segment length
+ * @param {number} roughness — decay factor per generation (0.5–0.7)
+ * @param {function} [rng] — random number generator (0..1)
+ * @returns {Array<{ x: number, y: number, z: number }>}
+ */
+export function generateLightningPath(start, end, generations, displacement, roughness = 0.55, rng = Math.random) {
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const dz = end.z - start.z
+  const len = Math.sqrt(dx * dx + dy * dy + dz * dz)
+  if (len < 0.001) return [start, end]
+
+  const basis = _perpendicularBasis(dx, dy, dz)
+  if (!basis) return [start, end]
+
+  // Iterative midpoint displacement (avoids deep recursion)
+  let points = [
+    { x: start.x, y: start.y, z: start.z },
+    { x: end.x, y: end.y, z: end.z },
+  ]
+
+  let currentDisplacement = displacement
+
+  for (let gen = 0; gen < generations; gen++) {
+    const newPoints = [points[0]]
+
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i]
+      const b = points[i + 1]
+
+      // Midpoint
+      const mx = (a.x + b.x) * 0.5
+      const my = (a.y + b.y) * 0.5
+      const mz = (a.z + b.z) * 0.5
+
+      // Segment length for displacement scaling
+      const segDx = b.x - a.x
+      const segDy = b.y - a.y
+      const segDz = b.z - a.z
+      const segLen = Math.sqrt(segDx * segDx + segDy * segDy + segDz * segDz)
+
+      // Displace perpendicular to the ORIGINAL direction (not segment direction)
+      // This keeps the bolt's overall shape coherent
+      const offsetScale = currentDisplacement * segLen
+      const offsetA = (rng() - 0.5) * 2 * offsetScale
+      const offsetB = (rng() - 0.5) * 2 * offsetScale
+
+      newPoints.push({
+        x: mx + basis.u1.x * offsetA + basis.u2.x * offsetB,
+        y: my + basis.u1.y * offsetA + basis.u2.y * offsetB,
+        z: mz + basis.u1.z * offsetA + basis.u2.z * offsetB,
+      })
+      newPoints.push(b)
+    }
+
+    points = newPoints
+    currentDisplacement *= roughness
+  }
+
   return points
 }
 

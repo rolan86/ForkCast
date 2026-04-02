@@ -195,6 +195,7 @@ export function useGraph3DRenderer() {
     graph.linkThreeObject(null)
     graph.linkThreeObjectExtend(false)
     graph.linkPositionUpdate(null)
+    graph.linkOpacity(0.45) // Restore default opacity
   }
 
   function _applyConnectionStyle(graph, style, graphData) {
@@ -243,47 +244,73 @@ export function useGraph3DRenderer() {
     graph.linkCurvature(0)
     graph.linkDirectionalParticles(0)
 
+    // Dim the default edges — the lightning replaces them visually
+    graph.linkOpacity(0.12)
+
+    // Max vertices per bolt: 5 generations = 2^5 + 1 = 33 points
+    const MAX_POINTS = 33
+
     // Custom lightning bolt geometry for each link
     graph.linkThreeObject(link => {
       const cfg = getNeuronConfig(link.weight || 0.5)
-      const color = '#7dd3fc' // sky-300 — electric blue
 
-      // Core bolt line
-      const geometry = new THREE.BufferGeometry()
-      const positions = new Float32Array((cfg.segments + 2) * 3)
-      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-
-      const coreMat = new THREE.LineBasicMaterial({
-        color: new THREE.Color(color),
+      // --- Core bolt: thin, white-hot, additive blending ---
+      const coreGeo = new THREE.BufferGeometry()
+      coreGeo.setAttribute('position', new THREE.BufferAttribute(
+        new Float32Array(MAX_POINTS * 3), 3,
+      ))
+      const coreLine = new THREE.Line(coreGeo, new THREE.LineBasicMaterial({
+        color: 0xffffff,
         transparent: true,
         opacity: 0.9,
-        linewidth: 1,
-      })
-      const coreLine = new THREE.Line(geometry, coreMat)
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      }))
 
-      // Glow bolt (wider, dimmer duplicate for glow effect)
-      const glowGeo = new THREE.BufferGeometry()
-      const glowPositions = new Float32Array((cfg.segments + 2) * 3)
-      glowGeo.setAttribute('position', new THREE.BufferAttribute(glowPositions, 3))
-
-      const glowMat = new THREE.LineBasicMaterial({
-        color: new THREE.Color(color),
+      // --- Mid glow: medium, blue-white, additive ---
+      const midGeo = new THREE.BufferGeometry()
+      midGeo.setAttribute('position', new THREE.BufferAttribute(
+        new Float32Array(MAX_POINTS * 3), 3,
+      ))
+      const midLine = new THREE.Line(midGeo, new THREE.LineBasicMaterial({
+        color: 0x88bbff,
         transparent: true,
-        opacity: cfg.glowOpacity * 0.5,
-        linewidth: 1,
-      })
-      const glowLine = new THREE.Line(glowGeo, glowMat)
-      glowLine.scale.set(1.4, 1.4, 1.4)
+        opacity: cfg.glowOpacity,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      }))
+
+      // --- Outer glow: wide, deep blue, dim, additive ---
+      const outerGeo = new THREE.BufferGeometry()
+      outerGeo.setAttribute('position', new THREE.BufferAttribute(
+        new Float32Array(MAX_POINTS * 3), 3,
+      ))
+      const outerLine = new THREE.Line(outerGeo, new THREE.LineBasicMaterial({
+        color: 0x4466ff,
+        transparent: true,
+        opacity: cfg.glowOpacity * 0.4,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      }))
 
       const group = new THREE.Group()
+      // Render order: outer first, core last (painter's order for additive)
+      outerLine.renderOrder = 1
+      midLine.renderOrder = 2
+      coreLine.renderOrder = 3
+      group.add(outerLine)
+      group.add(midLine)
       group.add(coreLine)
-      group.add(glowLine)
 
-      // Store metadata for animation
       group.userData = {
-        segments: cfg.segments,
-        jitter: cfg.jitter,
+        generations: cfg.generations,
+        displacement: cfg.displacement,
+        roughness: cfg.roughness,
         restrikeInterval: cfg.restrikeInterval,
+        glowOpacity: cfg.glowOpacity,
         lastRestrike: 0,
         weight: link.weight || 0.5,
       }
@@ -292,44 +319,57 @@ export function useGraph3DRenderer() {
     })
     graph.linkThreeObjectExtend(false)
 
-    // Position update — called each frame by 3d-force-graph with source/target coords
+    // Position update — place lightning along actual edge positions
     graph.linkPositionUpdate((obj, { start, end }) => {
-      if (!obj || !obj.children || obj.children.length < 2) return
+      if (!obj || !obj.children || obj.children.length < 3) return true
 
       const ud = obj.userData
       const now = performance.now()
 
-      // Only restrike at the configured interval
-      if (now - ud.lastRestrike < ud.restrikeInterval) return
+      // Restrike throttle
+      if (now - ud.lastRestrike < ud.restrikeInterval) return true
       ud.lastRestrike = now
 
-      const points = generateLightningPath(start, end, ud.segments, ud.jitter)
+      // Keep object at origin — we use world-space coordinates directly
+      obj.position.set(0, 0, 0)
+      obj.quaternion.identity()
 
-      // Update core line
-      const corePositions = obj.children[0].geometry.attributes.position.array
-      for (let i = 0; i < points.length; i++) {
-        corePositions[i * 3] = points[i].x
-        corePositions[i * 3 + 1] = points[i].y
-        corePositions[i * 3 + 2] = points[i].z
-      }
-      obj.children[0].geometry.attributes.position.needsUpdate = true
-      obj.children[0].geometry.setDrawRange(0, points.length)
+      // Generate the core bolt path (fractal midpoint displacement)
+      const points = generateLightningPath(
+        start, end, ud.generations, ud.displacement, ud.roughness,
+      )
 
-      // Update glow line with slightly different jitter for flicker
-      const glowPoints = generateLightningPath(start, end, ud.segments, ud.jitter * 1.3)
-      const glowPositions = obj.children[1].geometry.attributes.position.array
-      for (let i = 0; i < glowPoints.length; i++) {
-        glowPositions[i * 3] = glowPoints[i].x
-        glowPositions[i * 3 + 1] = glowPoints[i].y
-        glowPositions[i * 3 + 2] = glowPoints[i].z
-      }
-      obj.children[1].geometry.attributes.position.needsUpdate = true
-      obj.children[1].geometry.setDrawRange(0, glowPoints.length)
+      // Core line
+      _updateLinePositions(obj.children[2], points)
 
-      // Random opacity flicker
-      obj.children[0].material.opacity = 0.7 + Math.random() * 0.3
-      obj.children[1].material.opacity = ud.weight * 0.3 * (0.5 + Math.random() * 0.5)
+      // Mid glow — same path, slight random offset for thickness illusion
+      _updateLinePositions(obj.children[1], points)
+
+      // Outer glow — slightly different path for shimmer
+      const outerPoints = generateLightningPath(
+        start, end, ud.generations, ud.displacement * 1.2, ud.roughness,
+      )
+      _updateLinePositions(obj.children[0], outerPoints)
+
+      // Opacity flicker — rapid brightness variation like real lightning
+      const flicker = 0.7 + Math.random() * 0.3
+      obj.children[2].material.opacity = 0.9 * flicker
+      obj.children[1].material.opacity = ud.glowOpacity * flicker
+      obj.children[0].material.opacity = ud.glowOpacity * 0.4 * (0.5 + Math.random() * 0.5)
+
+      return true // Prevent library from overriding our positioning
     })
+  }
+
+  function _updateLinePositions(lineObj, points) {
+    const positions = lineObj.geometry.attributes.position.array
+    for (let i = 0; i < points.length; i++) {
+      positions[i * 3] = points[i].x
+      positions[i * 3 + 1] = points[i].y
+      positions[i * 3 + 2] = points[i].z
+    }
+    lineObj.geometry.attributes.position.needsUpdate = true
+    lineObj.geometry.setDrawRange(0, points.length)
   }
 
   function update(options) {
