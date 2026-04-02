@@ -635,6 +635,7 @@ export function useGraphRenderer() {
     // Lifecycle
     bind,
     destroy,
+    hasContainer: () => !!_container.value,
 
     // Actions
     render,

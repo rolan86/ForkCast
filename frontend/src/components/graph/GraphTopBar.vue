@@ -11,9 +11,10 @@ Contains search input, entity type filter buttons, layout dropdown, and settings
 -->
 
 <script setup>
+import { computed } from 'vue'
 import { Settings } from 'lucide-vue-next'
 import { Search } from 'lucide-vue-next'
-import { NEON_COLORS, LAYOUT_TYPES } from '@/constants/graph.js'
+import { NEON_COLORS, LAYOUT_TYPES, VISUAL_MODES } from '@/constants/graph.js'
 
 const props = defineProps({
   searchQuery: {
@@ -41,7 +42,13 @@ const props = defineProps({
     type: String,
     default: null,
   },
+  visualMode: {
+    type: String,
+    default: VISUAL_MODES.TWO_POINT_FIVE_D,
+  },
 })
+
+const is3D = computed(() => props.visualMode === VISUAL_MODES.THREE_D)
 
 const emit = defineEmits([
   'update:searchQuery',
@@ -73,41 +80,43 @@ function handleSettingsToggle() {
 <template>
   <div>
     <div class="graph-top-bar">
-      <div class="search-section">
-        <Search :size="14" />
-        <input
-          id="entity-search"
-          :value="searchQuery"
-          @input="handleSearchInput"
-          placeholder="Search entities..."
-          aria-label="Search entities"
-        />
-      </div>
-      <div v-if="entityTypes.length > 0" class="filter-section">
-        <button
-          v-for="(type, index) in entityTypes"
-          :key="type"
-          :class="{ active: activeFilters.includes(type) }"
-          :style="{ animationDelay: `${index * 25}ms` }"
-          :aria-pressed="activeFilters.includes(type)"
-          @click="handleFilterToggle(type)"
-        >
-          <span
-            class="filter-dot"
-            :style="{ backgroundColor: NEON_COLORS[type] || 'var(--text-tertiary)' }"
+      <template v-if="!is3D">
+        <div class="search-section">
+          <Search :size="14" />
+          <input
+            id="entity-search"
+            :value="searchQuery"
+            @input="handleSearchInput"
+            placeholder="Search entities..."
+            aria-label="Search entities"
           />
-          {{ type }}
-        </button>
-      </div>
-      <select
-        class="layout-select"
-        :value="currentLayout"
-        @change="emit('select-layout', $event.target.value)"
-      >
-        <option v-for="opt in layoutOptions" :key="opt.value" :value="opt.value">
-          {{ opt.label }}
-        </option>
-      </select>
+        </div>
+        <div v-if="entityTypes.length > 0" class="filter-section">
+          <button
+            v-for="(type, index) in entityTypes"
+            :key="type"
+            :class="{ active: activeFilters.includes(type) }"
+            :style="{ animationDelay: `${index * 25}ms` }"
+            :aria-pressed="activeFilters.includes(type)"
+            @click="handleFilterToggle(type)"
+          >
+            <span
+              class="filter-dot"
+              :style="{ backgroundColor: NEON_COLORS[type] || 'var(--text-tertiary)' }"
+            />
+            {{ type }}
+          </button>
+        </div>
+        <select
+          class="layout-select"
+          :value="currentLayout"
+          @change="emit('select-layout', $event.target.value)"
+        >
+          <option v-for="opt in layoutOptions" :key="opt.value" :value="opt.value">
+            {{ opt.label }}
+          </option>
+        </select>
+      </template>
       <button
         class="settings-toggle"
         :class="{ active: settingsPanelOpen }"

@@ -5,8 +5,10 @@ import { useProjectStore } from '@/stores/project.js'
 import { buildGraph, getGraphData, streamGraphBuild } from '@/api/graphs.js'
 import { useGraphState } from '@/composables/useGraphState.js'
 import { useGraphRenderer } from '@/composables/useGraphRenderer.js'
-import { NEON_COLORS, LAYOUT_TYPES, VISUAL_MODES, INTERACTION_MODES } from '@/constants/graph.js'
+import { useGraph3DRenderer } from '@/composables/useGraph3DRenderer.js'
+import { NEON_COLORS, LAYOUT_TYPES, VISUAL_MODES, INTERACTION_MODES, RENDER_CONFIG_3D } from '@/constants/graph.js'
 import { findShortestPath, findNeighbors, findNodesInLasso } from '@/utils/graph/interactions/modes.js'
+import { projectToScreen, isPointInPolygon, computePathHighlightSet } from '@/utils/graph/interactions/modes3d.js'
 import EmptyState from '@/components/EmptyState.vue'
 import ProgressPanel from '@/components/ProgressPanel.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
@@ -35,10 +37,13 @@ const {
   updatePathResult,
   updateNeighborResult,
   interactionMeta,
+  update3DSettings,
+  applyPerformancePreset,
 } = useGraphState()
 
 // Renderer composable — owns all D3 state
 const renderer = useGraphRenderer()
+const graph3DRenderer = useGraph3DRenderer()
 
 // State: 'empty' | 'building' | 'ready'
 const viewState = ref('empty')
@@ -59,6 +64,13 @@ const isLayoutLoading = ref(false)
 // DOM ref
 const svgContainer = ref(null)
 let sseConnection = null
+
+// 3D mode state
+const currentFps = ref(null)
+const showFpsToast = ref(false)
+let fpsInterval = null
+let lowFpsStart = null
+let toastCooldownUntil = 0
 
 const GRAPH_BUILD_STEPS = [
   { label: 'Extract text', stageNames: ['extracting_text'] },
@@ -86,10 +98,15 @@ onMounted(() => {
   } else {
     viewState.value = 'empty'
   }
+
+  window.addEventListener('keydown', handleKeydown3D)
 })
 
 onUnmounted(() => {
   sseConnection?.close()
+  graph3DRenderer.destroy()
+  clearInterval(fpsInterval)
+  window.removeEventListener('keydown', handleKeydown3D)
   // renderer auto-cleans via onScopeDispose
 })
 
@@ -158,10 +175,65 @@ function zoomIn() { renderer.zoomIn() }
 function zoomOut() { renderer.zoomOut() }
 function zoomReset() { renderer.zoomReset() }
 
-function renderGraph() {
+let _rendering = false
+
+async function renderGraph() {
+  if (_rendering) return
   if (!svgContainer.value || !graphData.value) return
-  renderer.render(graphData.value, renderOptions())
-  setupLassoEvents()
+
+  _rendering = true
+  try {
+    const width = svgContainer.value.clientWidth
+    const height = svgContainer.value.clientHeight
+
+    if (graphState.visualMode === VISUAL_MODES.THREE_D) {
+      // Destroy 2D renderer if active
+      renderer.destroy()
+
+      await graph3DRenderer.render(
+        svgContainer.value,
+        graphData.value,
+        width,
+        height,
+        {
+          connectionStyle: graphState.settings3d.connectionStyle,
+          glowEnabled: graphState.settings3d.glowEnabled,
+          pulseEnabled: graphState.settings3d.pulseEnabled,
+          autoRotate: graphState.settings3d.autoRotate,
+        },
+      )
+
+      // Wire up click handler with double-click detection for dive-in
+      let lastClickTime = 0
+      graph3DRenderer.onNodeClick(node => {
+        const now = Date.now()
+        if (now - lastClickTime < 300 && node) {
+          graph3DRenderer.diveIn(node)
+        } else if (node) {
+          selectNode(node)
+        }
+        lastClickTime = now
+      })
+
+      return
+    }
+
+    // Destroy 3D renderer if switching away from 3D
+    graph3DRenderer.destroy()
+
+    // Re-bind 2D renderer only if it lost its container (after switching from 3D)
+    if (!renderer.hasContainer()) {
+      renderer.bind(svgContainer.value, () => {
+        if (graphData.value) renderGraph()
+      })
+    }
+
+    // Existing 2D rendering
+    renderer.render(graphData.value, renderOptions())
+    setupLassoEvents()
+  } finally {
+    _rendering = false
+  }
 }
 
 function renderOptions() {
@@ -290,8 +362,13 @@ async function handleLayoutChange(layoutType) {
 function handleModeChange(mode) { updateSelection({ mode }) }
 function handleClusteringToggle(enabled) { updateClustering({ enabled }) }
 
-function handleVisualModeToggle(enabled) {
-  updateVisualMode(enabled ? VISUAL_MODES.TWO_POINT_FIVE_D : VISUAL_MODES.TWO_D)
+function handleVisualModeToggle(mode) {
+  if (typeof mode === 'boolean') {
+    // Legacy toggle: true = 2.5D, false = 2D
+    updateVisualMode(mode ? VISUAL_MODES.TWO_POINT_FIVE_D : VISUAL_MODES.TWO_D)
+  } else {
+    updateVisualMode(mode)
+  }
 }
 
 function handleRenderModeChange(mode) {
@@ -369,6 +446,157 @@ watch(() => graphState.selection.mode, (newMode, oldMode) => {
   if (newMode !== oldMode) renderer.clearHighlights()
 })
 
+// Re-render when visual mode changes
+watch(
+  () => graphState.visualMode,
+  () => {
+    if (graphData.value) renderGraph()
+  },
+)
+
+// Update 3D renderer when 3D settings change
+watch(
+  () => graphState.settings3d,
+  (newSettings) => {
+    if (graphState.visualMode === VISUAL_MODES.THREE_D) {
+      graph3DRenderer.update(newSettings)
+    }
+  },
+  { deep: true },
+)
+
+// FPS tracking for 3D mode
+watch(
+  () => graphState.visualMode,
+  (mode) => {
+    if (mode === VISUAL_MODES.THREE_D) {
+      fpsInterval = setInterval(() => {
+        currentFps.value = graph3DRenderer.getFps()
+        checkFpsForDowngrade()
+      }, 1000)
+    } else {
+      clearInterval(fpsInterval)
+      currentFps.value = null
+      showFpsToast.value = false
+    }
+  },
+)
+
+function checkFpsForDowngrade() {
+  if (graphState.visualMode !== VISUAL_MODES.THREE_D) return
+  const fps = graph3DRenderer.getFps()
+
+  if (fps < RENDER_CONFIG_3D.fpsLowThreshold) {
+    if (!lowFpsStart) lowFpsStart = Date.now()
+    else if (
+      Date.now() - lowFpsStart >= RENDER_CONFIG_3D.fpsLowDuration &&
+      Date.now() > toastCooldownUntil &&
+      !showFpsToast.value
+    ) {
+      showFpsToast.value = true
+    }
+  } else {
+    lowFpsStart = null
+  }
+}
+
+function acceptDowngrade() {
+  applyPerformancePreset('balanced')
+  showFpsToast.value = false
+  lowFpsStart = null
+}
+
+function dismissDowngrade() {
+  showFpsToast.value = false
+  lowFpsStart = null
+  toastCooldownUntil = Date.now() + RENDER_CONFIG_3D.fpsToastCooldown
+}
+
+function handleKeydown3D(event) {
+  if (graphState.visualMode !== VISUAL_MODES.THREE_D) return
+
+  switch (event.key) {
+    case 'r':
+    case 'R':
+      graph3DRenderer.exitDiveIn()
+      break
+    case 'Escape':
+      if (graph3DRenderer.isDivedIn()) {
+        graph3DRenderer.exitDiveIn()
+      }
+      break
+  }
+}
+
+// --- 3D Lasso Selection ---
+const lassoPoints3D = ref([])
+const isLassoing3D = ref(false)
+
+function handleMouseDown3D(event) {
+  if (graphState.visualMode !== VISUAL_MODES.THREE_D) return
+  if (graphState.selection.mode !== INTERACTION_MODES.LASSO) return
+  isLassoing3D.value = true
+  lassoPoints3D.value = [{ x: event.offsetX, y: event.offsetY }]
+}
+
+function handleMouseMove3D(event) {
+  if (!isLassoing3D.value) return
+  lassoPoints3D.value.push({ x: event.offsetX, y: event.offsetY })
+}
+
+async function handleMouseUp3D() {
+  if (!isLassoing3D.value) return
+  isLassoing3D.value = false
+
+  if (lassoPoints3D.value.length < 3) return
+
+  const gData = graph3DRenderer.getGraphData()
+  const camera = graph3DRenderer.getCamera()
+  if (!gData || !camera) return
+
+  const THREE = await import('three')
+  const width = svgContainer.value.clientWidth
+  const height = svgContainer.value.clientHeight
+  const selectedIds = []
+
+  gData.nodes.forEach(node => {
+    if (node.x == null) return
+    const vec = new THREE.Vector3(node.x, node.y, node.z).project(camera)
+    const screenPos = projectToScreen(vec, camera, width, height)
+    if (isPointInPolygon(screenPos, lassoPoints3D.value)) {
+      selectedIds.push(node.id)
+    }
+  })
+
+  updateSelection({ nodes: selectedIds })
+  lassoPoints3D.value = []
+}
+
+// --- 3D Path & Neighbor Highlighting ---
+watch(
+  () => graphState.selection.pathResult,
+  (path) => {
+    if (graphState.visualMode !== VISUAL_MODES.THREE_D || !path?.length) {
+      if (graphState.visualMode === VISUAL_MODES.THREE_D) graph3DRenderer.clearHighlights()
+      return
+    }
+    const { nodeIds, edgeKeys } = computePathHighlightSet(path)
+    graph3DRenderer.highlightNodes(nodeIds)
+    graph3DRenderer.highlightEdges(edgeKeys)
+  },
+)
+
+watch(
+  () => graphState.selection.neighborResult,
+  (neighbors) => {
+    if (graphState.visualMode !== VISUAL_MODES.THREE_D || !neighbors?.length) {
+      if (graphState.visualMode === VISUAL_MODES.THREE_D) graph3DRenderer.clearHighlights()
+      return
+    }
+    graph3DRenderer.highlightNodes(new Set(neighbors.map(n => n.id || n)))
+  },
+)
+
 function handleSelectionAction(actionId) {
   switch (actionId) {
     case 'deselect':
@@ -432,6 +660,7 @@ function handleSelectionAction(actionId) {
         :activeFilters="activeFilters"
         :settingsPanelOpen="settingsPanelOpen"
         :currentLayout="graphState.layout"
+        :visualMode="graphState.visualMode"
         :interactionInstruction="interactionMeta.instruction"
         @update:searchQuery="searchQuery = $event"
         @toggle-filter="toggleFilter"
@@ -462,6 +691,11 @@ function handleSelectionAction(actionId) {
           :showMiniMap="showMiniMap"
           :clusteringEnabled="graphState.clustering.enabled"
           :isLoading="isLayoutLoading"
+          :connectionStyle3d="graphState.settings3d.connectionStyle"
+          :glowEnabled3d="graphState.settings3d.glowEnabled"
+          :pulseEnabled3d="graphState.settings3d.pulseEnabled"
+          :autoRotate3d="graphState.settings3d.autoRotate"
+          :performancePreset3d="graphState.settings3d.performancePreset"
           @close="closeSettings"
           @select-layout="handleLayoutChange"
           @toggle-visual-mode="handleVisualModeToggle"
@@ -471,6 +705,8 @@ function handleSelectionAction(actionId) {
           @toggle-stats="handleStatsToggle"
           @toggle-mini-map="handleMiniMapToggle"
           @toggle-clustering="handleClusteringToggle"
+          @update-3d-settings="update3DSettings"
+          @apply-performance-preset="applyPerformancePreset"
         />
 
         <!-- Main graph area -->
@@ -479,6 +715,9 @@ function handleSelectionAction(actionId) {
             ref="svgContainer"
             class="w-full h-full min-h-[500px]"
             :style="{ cursor: interactionMeta.cursor }"
+            @mousedown="handleMouseDown3D"
+            @mousemove="handleMouseMove3D"
+            @mouseup="handleMouseUp3D"
           />
 
           <!-- Stats panel (conditionally rendered in graph area) -->
@@ -491,6 +730,8 @@ function handleSelectionAction(actionId) {
                 :clusterCount="graphStats.clusterCount"
                 :selectedCount="graphStats.selectedCount"
                 :layout="graphStats.layout"
+                :fps="currentFps"
+                :visualMode="graphState.visualMode"
               />
             </div>
           </Transition>
@@ -517,6 +758,7 @@ function handleSelectionAction(actionId) {
                 :nodes="graphData.nodes || []"
                 :viewport="renderer.viewport.value"
                 :mainViewBounds="mainViewBounds"
+                :visualMode="graphState.visualMode"
                 @navigate-to="renderer.panTo"
               />
             </div>
@@ -546,6 +788,26 @@ function handleSelectionAction(actionId) {
               <RotateCcw :size="12" />
             </button>
           </div>
+
+          <!-- Dive-in exit button (3D mode) -->
+          <button
+            v-if="graphState.visualMode === '3d' && graph3DRenderer.isDivedIn()"
+            class="dive-in-exit-btn"
+            @click="graph3DRenderer.exitDiveIn()"
+          >
+            Back to overview
+          </button>
+
+          <!-- Performance downgrade toast -->
+          <Transition name="toast">
+            <div v-if="showFpsToast" class="fps-toast">
+              <span>Low framerate detected. Switch to Balanced mode?</span>
+              <div class="fps-toast-actions">
+                <button class="toast-btn toast-accept" @click="acceptDowngrade">Accept</button>
+                <button class="toast-btn toast-dismiss" @click="dismissDowngrade">Dismiss</button>
+              </div>
+            </div>
+          </Transition>
 
           <!-- Rebuild button (always visible, adjusts position when mini-map shown) -->
           <div :class="['absolute right-3 z-10', showMiniMap ? 'bottom-[170px]' : 'bottom-3']">
@@ -659,4 +921,86 @@ function handleSelectionAction(actionId) {
 .slide-in-right-sidebar-leave-to {
   transform: translateX(100%);
 }
+
+/* Dive-in exit button */
+.dive-in-exit-btn {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 8px 20px;
+  border-radius: 20px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: all 150ms;
+}
+
+.dive-in-exit-btn:hover {
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+
+/* FPS performance toast */
+.fps-toast {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  border-radius: 12px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  font-size: 13px;
+  color: var(--text-primary);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+.fps-toast-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.toast-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+}
+
+.toast-accept {
+  background: var(--color-primary);
+  color: white;
+}
+
+.toast-dismiss {
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: all 300ms ease;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(20px);
+}
+
+/* Hide zoom controls in 3D mode (3d-force-graph has its own) */
 </style>

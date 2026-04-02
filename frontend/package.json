@@ -12,9 +12,12 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "3d-force-graph": "^1.79.1",
     "d3": "^7.9.0",
+    "d3-force-3d": "^3.0.6",
     "lucide-vue-next": "^0.577.0",
     "pinia": "^3.0.4",
+    "three": "^0.183.2",
     "vue": "^3.5.30",
     "vue-router": "^4.6.4"
   },

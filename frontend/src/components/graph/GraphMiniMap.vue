@@ -26,6 +26,10 @@ const props = defineProps({
     type: Object,
     default: () => ({ x: 0, y: 0, w: 0, h: 0 }),
   },
+  visualMode: {
+    type: String,
+    default: '2d',
+  },
 })
 
 // Emits
@@ -53,8 +57,8 @@ onUnmounted(() => {
   }
 })
 
-// Watch for nodes or viewport changes
-watch([() => props.nodes, () => props.viewport], () => {
+// Watch for nodes, viewport, or visualMode changes
+watch([() => props.nodes, () => props.viewport, () => props.visualMode], () => {
   if (container.value) {
     renderMiniMap()
   }
@@ -63,10 +67,21 @@ watch([() => props.nodes, () => props.viewport], () => {
 function renderMiniMap() {
   if (!container.value || !props.nodes.length) return
 
-  const { nodes, mainViewBounds } = props
+  const { nodes, visualMode } = props
 
   // Clear previous rendering
   d3.select(container.value).selectAll('*').remove()
+
+  // Check if we're in 3D mode for top-down projection
+  if (visualMode === '3d') {
+    render3DTopDownProjection(nodes)
+  } else {
+    render2DMiniMap(nodes)
+  }
+}
+
+function render2DMiniMap(nodes) {
+  const { mainViewBounds } = props
 
   // Calculate scale to fit graph in mini-map
   const graphBounds = calculateGraphBounds(nodes)
@@ -97,6 +112,46 @@ function renderMiniMap() {
 
   // Add viewport indicator
   updateViewportIndicator(g, scale, graphBounds)
+}
+
+function render3DTopDownProjection(nodes) {
+  // Calculate bounds for 3D projection (x-z plane)
+  const bounds3D = calculate3DBounds(nodes)
+  const scale = (MINIMAP_SIZE - PADDING * 2) / Math.max(bounds3D.width, bounds3D.depth)
+
+  // Create SVG
+  svg = d3.select(container.value)
+    .append('svg')
+    .attr('width', MINIMAP_SIZE)
+    .attr('height', MINIMAP_SIZE)
+    .attr('viewBox', `0 0 ${MINIMAP_SIZE} ${MINIMAP_SIZE}`)
+
+  // Create group with padding
+  const g = svg.append('g')
+    .attr('transform', `translate(${PADDING}, ${PADDING})`)
+
+  // Render nodes as dots using x-z projection
+  const nodeRadius = 2
+  g.selectAll('.mm-node-3d')
+    .data(nodes)
+    .join('circle')
+    .attr('class', 'mm-node-3d')
+    .attr('cx', d => ((d.x || 0) - bounds3D.minX) * scale)
+    .attr('cy', d => ((d.z || 0) - bounds3D.minZ) * scale)
+    .attr('r', nodeRadius)
+    .attr('fill', d => NEON_COLORS[d.type] || '#6366f1')
+    .attr('opacity', 0.7)
+
+  // Add label "Top-down view"
+  g.append('text')
+    .attr('class', 'top-down-label')
+    .attr('x', (MINIMAP_SIZE - PADDING * 2) / 2)
+    .attr('y', (MINIMAP_SIZE - PADDING * 2) - 5)
+    .attr('text-anchor', 'middle')
+    .attr('font-size', '10px')
+    .attr('fill', 'var(--text-secondary)')
+    .attr('opacity', 0.6)
+    .text('Top-down')
 }
 
 function updateViewportIndicator(g, scale, graphBounds) {
@@ -189,6 +244,43 @@ function calculateGraphBounds(nodes) {
     maxY,
     width: maxX - minX || 100,
     height: maxY - minY || 100,
+  }
+}
+
+function calculate3DBounds(nodes) {
+  if (!nodes.length) {
+    return { minX: 0, minZ: 0, maxX: 100, maxZ: 100, width: 100, depth: 100 }
+  }
+
+  let minX = Infinity
+  let minZ = Infinity
+  let maxX = -Infinity
+  let maxZ = -Infinity
+
+  nodes.forEach(node => {
+    if (node.x !== undefined) {
+      minX = Math.min(minX, node.x)
+      maxX = Math.max(maxX, node.x)
+    }
+    if (node.z !== undefined) {
+      minZ = Math.min(minZ, node.z)
+      maxZ = Math.max(maxZ, node.z)
+    }
+  })
+
+  // Handle edge case
+  if (minX === Infinity) minX = 0
+  if (minZ === Infinity) minZ = 0
+  if (maxX === -Infinity) maxX = 100
+  if (maxZ === -Infinity) maxZ = 100
+
+  return {
+    minX,
+    minZ,
+    maxX,
+    maxZ,
+    width: maxX - minX || 100,
+    depth: maxZ - minZ || 100,
   }
 }
 </script>

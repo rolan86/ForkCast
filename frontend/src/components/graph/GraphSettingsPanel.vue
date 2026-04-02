@@ -64,6 +64,26 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  connectionStyle3d: {
+    type: String,
+    default: 'curved',
+  },
+  glowEnabled3d: {
+    type: Boolean,
+    default: true,
+  },
+  pulseEnabled3d: {
+    type: Boolean,
+    default: true,
+  },
+  autoRotate3d: {
+    type: Boolean,
+    default: false,
+  },
+  performancePreset3d: {
+    type: String,
+    default: 'quality',
+  },
 })
 
 const emit = defineEmits([
@@ -76,6 +96,8 @@ const emit = defineEmits([
   'toggle-stats',
   'toggle-mini-map',
   'toggle-clustering',
+  'update-3d-settings',
+  'apply-performance-preset',
 ])
 
 // Accordion state
@@ -149,14 +171,18 @@ const interactionModeOptions = computed(() => [
       <div class="settings-section">
         <div class="settings-header">Visual Options</div>
 
-        <label class="option-checkbox">
-          <input
-            type="checkbox"
-            :checked="visualMode === VISUAL_MODES.TWO_POINT_FIVE_D"
-            @change="$emit('toggle-visual-mode', $event.target.checked)"
-          />
-          <span>2.5D holographic effect</span>
-        </label>
+        <div class="setting-row">
+          <label class="setting-label">Visual Mode</label>
+          <select
+            class="setting-select"
+            :value="visualMode"
+            @change="$emit('toggle-visual-mode', $event.target.value)"
+          >
+            <option :value="VISUAL_MODES.TWO_D">2D Flat</option>
+            <option :value="VISUAL_MODES.TWO_POINT_FIVE_D">2.5D Holographic</option>
+            <option :value="VISUAL_MODES.THREE_D">3D Brain</option>
+          </select>
+        </div>
 
         <label class="option-checkbox">
           <input
@@ -166,6 +192,81 @@ const interactionModeOptions = computed(() => [
           />
           <span>Performance mode (no animations)</span>
         </label>
+      </div>
+
+      <!-- 3D Settings Section -->
+      <div class="settings-section" v-if="visualMode === '3d'">
+        <div class="settings-header">3D Settings</div>
+
+        <!-- Connection Style -->
+        <div class="setting-row">
+          <label class="setting-label">Connection Style</label>
+          <select
+            data-testid="connection-style-select"
+            class="setting-select"
+            :value="connectionStyle3d"
+            @change="$emit('update-3d-settings', { connectionStyle: $event.target.value })"
+          >
+            <option value="curved">Curved Paths</option>
+            <option value="particle">Particle Flow — GPU heavy</option>
+            <option value="adaptive">Adaptive — Auto-optimizes</option>
+            <option value="neuron">Neuron Fire — GPU heavy</option>
+          </select>
+        </div>
+
+        <!-- Glow Toggle -->
+        <label class="option-checkbox">
+          <input
+            type="checkbox"
+            :checked="glowEnabled3d"
+            @change="$emit('update-3d-settings', { glowEnabled: $event.target.checked })"
+          />
+          <span>Node Glow</span>
+        </label>
+
+        <!-- Pulse Toggle -->
+        <label class="option-checkbox">
+          <input
+            type="checkbox"
+            :checked="pulseEnabled3d"
+            @change="$emit('update-3d-settings', { pulseEnabled: $event.target.checked })"
+          />
+          <span>Node Pulse</span>
+          <span class="setting-hint">Moderate GPU</span>
+        </label>
+
+        <!-- Auto-Rotate Toggle -->
+        <label class="option-checkbox">
+          <input
+            type="checkbox"
+            :checked="autoRotate3d"
+            @change="$emit('update-3d-settings', { autoRotate: $event.target.checked })"
+          />
+          <span>Auto-Rotate</span>
+        </label>
+
+        <!-- Performance Presets -->
+        <div class="settings-header" style="margin-top: 12px;">Performance</div>
+        <div class="preset-buttons">
+          <button
+            data-testid="preset-quality"
+            class="preset-btn"
+            :class="{ active: performancePreset3d === 'quality' }"
+            @click="$emit('apply-performance-preset', 'quality')"
+          >Quality</button>
+          <button
+            data-testid="preset-balanced"
+            class="preset-btn"
+            :class="{ active: performancePreset3d === 'balanced' }"
+            @click="$emit('apply-performance-preset', 'balanced')"
+          >Balanced</button>
+          <button
+            data-testid="preset-performance"
+            class="preset-btn"
+            :class="{ active: performancePreset3d === 'performance' }"
+            @click="$emit('apply-performance-preset', 'performance')"
+          >Performance</button>
+        </div>
       </div>
 
       <!-- Advanced Section -->
@@ -515,6 +616,65 @@ const interactionModeOptions = computed(() => [
 
 .slide-in-right-leave-to .settings-panel {
   transform: translateX(100%);
+}
+
+.setting-row {
+  margin: 8px 0;
+}
+
+.setting-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  margin-bottom: 6px;
+}
+
+.setting-select {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.preset-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.preset-btn {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 150ms;
+}
+
+.preset-btn:hover {
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+}
+
+.preset-btn.active {
+  background: var(--color-primary);
+  color: white;
+  border-color: var(--color-primary);
+}
+
+.setting-hint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-left: 4px;
 }
 
 /* Responsive */

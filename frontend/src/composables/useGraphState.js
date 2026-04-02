@@ -21,6 +21,8 @@ import {
   RENDER_MODES,
   INTERACTION_MODES,
   PERFORMANCE_THRESHOLDS,
+  CONNECTION_STYLES,
+  PERFORMANCE_PRESETS,
 } from '@/constants/graph.js'
 
 /**
@@ -132,6 +134,15 @@ function createInitialState() {
       animationsEnabled: true,
       performanceMode: false, // When true, reduces effects for better FPS
       fps: 60, // Current FPS (dev mode only)
+    },
+
+    // 3D-specific settings
+    settings3d: {
+      connectionStyle: CONNECTION_STYLES.CURVED,
+      glowEnabled: true,
+      pulseEnabled: true,
+      autoRotate: false,
+      performancePreset: 'quality',
     },
 
     // Track whether user manually selected render mode
@@ -318,6 +329,27 @@ export function useGraphState() {
     state.performance.animationsEnabled = !enabled
   }
 
+  /**
+   * Update 3D-specific settings
+   * @param {Object} updates - Partial 3D settings updates
+   */
+  function update3DSettings(updates) {
+    Object.assign(state.settings3d, updates)
+  }
+
+  /**
+   * Apply a performance preset for 3D rendering
+   * @param {string} presetName - Name of preset (quality, balanced, performance)
+   */
+  function applyPerformancePreset(presetName) {
+    const preset = PERFORMANCE_PRESETS[presetName.toUpperCase()]
+    if (!preset) return
+    state.settings3d.glowEnabled = preset.glow
+    state.settings3d.pulseEnabled = preset.pulse
+    state.settings3d.connectionStyle = preset.connectionStyle
+    state.settings3d.performancePreset = presetName
+  }
+
   function updatePathResult(path) {
     state.selection.pathResult = Array.isArray(path) ? [...path] : []
   }
@@ -379,6 +411,8 @@ export function useGraphState() {
 
     // Performance mutators
     updatePerformanceMode,
+    update3DSettings,
+    applyPerformancePreset,
 
     // Utilities
     reset,
