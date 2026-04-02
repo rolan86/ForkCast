@@ -5,7 +5,7 @@ import {
   NEON_COLORS,
 } from '@/constants/graph.js'
 import { getNodeRadius, getGeometryType, getPulseScale, createNodeMaterial } from '@/utils/graph/rendering/neuralEffects.js'
-import { getCurvedConfig, getParticleConfig, getNeuronConfig, getAdaptiveStyle, getEdgeWidth, getEdgeOpacity } from '@/utils/graph/rendering/connectionStyles.js'
+import { getCurvedConfig, getParticleConfig, getNeuronConfig, generateLightningPath, getAdaptiveStyle, getEdgeWidth, getEdgeOpacity } from '@/utils/graph/rendering/connectionStyles.js'
 import { screenToNDC, isPointInPolygon, computeDiveInTarget, computePathHighlightSet } from '@/utils/graph/interactions/modes3d.js'
 
 export function useGraph3DRenderer() {
@@ -14,6 +14,8 @@ export function useGraph3DRenderer() {
   const _animationFrame = shallowRef(null)
   const _fps = shallowRef(60)
   const _isDivedIn = shallowRef(false)
+  let _THREE = null
+  let _neuronActive = false
 
   let _frameCount = 0
   let _lastFpsTime = performance.now()
@@ -34,6 +36,7 @@ export function useGraph3DRenderer() {
 
     const ForceGraph3D = (await import('3d-force-graph')).default
     const THREE = await import('three')
+    _THREE = THREE
 
     // Create a canvas-based text sprite for node labels
     function _createTextSprite(text, color) {
@@ -187,7 +190,19 @@ export function useGraph3DRenderer() {
     _graph.value = graph
   }
 
+  function _clearNeuronMode(graph) {
+    _neuronActive = false
+    graph.linkThreeObject(null)
+    graph.linkThreeObjectExtend(false)
+    graph.linkPositionUpdate(null)
+  }
+
   function _applyConnectionStyle(graph, style, graphData) {
+    // Clear custom link objects from neuron mode when switching away
+    if (style !== CONNECTION_STYLES.NEURON && _neuronActive) {
+      _clearNeuronMode(graph)
+    }
+
     switch (style) {
       case CONNECTION_STYLES.PARTICLE:
         graph.linkCurvature(0)
@@ -209,18 +224,7 @@ export function useGraph3DRenderer() {
         break
 
       case CONNECTION_STYLES.NEURON:
-        graph.linkCurvature(link => {
-          const cfg = getNeuronConfig(link.weight || 0.5)
-          return cfg.curvature
-        })
-        graph.linkDirectionalParticles(link => {
-          const cfg = getNeuronConfig(link.weight || 0.5)
-          return cfg.emissionRate
-        })
-        graph.linkDirectionalParticleSpeed(link => {
-          const cfg = getNeuronConfig(link.weight || 0.5)
-          return cfg.speed * 0.001
-        })
+        _applyNeuronStyle(graph)
         break
 
       case CONNECTION_STYLES.ADAPTIVE:
@@ -229,6 +233,103 @@ export function useGraph3DRenderer() {
         graph.linkDirectionalParticles(0)
         break
     }
+  }
+
+  function _applyNeuronStyle(graph) {
+    if (!_THREE) return
+    const THREE = _THREE
+
+    _neuronActive = true
+    graph.linkCurvature(0)
+    graph.linkDirectionalParticles(0)
+
+    // Custom lightning bolt geometry for each link
+    graph.linkThreeObject(link => {
+      const cfg = getNeuronConfig(link.weight || 0.5)
+      const color = '#7dd3fc' // sky-300 — electric blue
+
+      // Core bolt line
+      const geometry = new THREE.BufferGeometry()
+      const positions = new Float32Array((cfg.segments + 2) * 3)
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+
+      const coreMat = new THREE.LineBasicMaterial({
+        color: new THREE.Color(color),
+        transparent: true,
+        opacity: 0.9,
+        linewidth: 1,
+      })
+      const coreLine = new THREE.Line(geometry, coreMat)
+
+      // Glow bolt (wider, dimmer duplicate for glow effect)
+      const glowGeo = new THREE.BufferGeometry()
+      const glowPositions = new Float32Array((cfg.segments + 2) * 3)
+      glowGeo.setAttribute('position', new THREE.BufferAttribute(glowPositions, 3))
+
+      const glowMat = new THREE.LineBasicMaterial({
+        color: new THREE.Color(color),
+        transparent: true,
+        opacity: cfg.glowOpacity * 0.5,
+        linewidth: 1,
+      })
+      const glowLine = new THREE.Line(glowGeo, glowMat)
+      glowLine.scale.set(1.4, 1.4, 1.4)
+
+      const group = new THREE.Group()
+      group.add(coreLine)
+      group.add(glowLine)
+
+      // Store metadata for animation
+      group.userData = {
+        segments: cfg.segments,
+        jitter: cfg.jitter,
+        restrikeInterval: cfg.restrikeInterval,
+        lastRestrike: 0,
+        weight: link.weight || 0.5,
+      }
+
+      return group
+    })
+    graph.linkThreeObjectExtend(false)
+
+    // Position update — called each frame by 3d-force-graph with source/target coords
+    graph.linkPositionUpdate((obj, { start, end }) => {
+      if (!obj || !obj.children || obj.children.length < 2) return
+
+      const ud = obj.userData
+      const now = performance.now()
+
+      // Only restrike at the configured interval
+      if (now - ud.lastRestrike < ud.restrikeInterval) return
+      ud.lastRestrike = now
+
+      const points = generateLightningPath(start, end, ud.segments, ud.jitter)
+
+      // Update core line
+      const corePositions = obj.children[0].geometry.attributes.position.array
+      for (let i = 0; i < points.length; i++) {
+        corePositions[i * 3] = points[i].x
+        corePositions[i * 3 + 1] = points[i].y
+        corePositions[i * 3 + 2] = points[i].z
+      }
+      obj.children[0].geometry.attributes.position.needsUpdate = true
+      obj.children[0].geometry.setDrawRange(0, points.length)
+
+      // Update glow line with slightly different jitter for flicker
+      const glowPoints = generateLightningPath(start, end, ud.segments, ud.jitter * 1.3)
+      const glowPositions = obj.children[1].geometry.attributes.position.array
+      for (let i = 0; i < glowPoints.length; i++) {
+        glowPositions[i * 3] = glowPoints[i].x
+        glowPositions[i * 3 + 1] = glowPoints[i].y
+        glowPositions[i * 3 + 2] = glowPoints[i].z
+      }
+      obj.children[1].geometry.attributes.position.needsUpdate = true
+      obj.children[1].geometry.setDrawRange(0, glowPoints.length)
+
+      // Random opacity flicker
+      obj.children[0].material.opacity = 0.7 + Math.random() * 0.3
+      obj.children[1].material.opacity = ud.weight * 0.3 * (0.5 + Math.random() * 0.5)
+    })
   }
 
   function update(options) {
@@ -341,6 +442,8 @@ export function useGraph3DRenderer() {
     }
     _container.value = null
     _isDivedIn.value = false
+    _neuronActive = false
+    _THREE = null
   }
 
   return {
