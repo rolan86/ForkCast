@@ -5,7 +5,7 @@ import {
   NEON_COLORS,
 } from '@/constants/graph.js'
 import { getNodeRadius, getGeometryType, getPulseScale, createNodeMaterial } from '@/utils/graph/rendering/neuralEffects.js'
-import { getCurvedConfig, getParticleConfig, getAdaptiveStyle, getEdgeWidth, getEdgeOpacity } from '@/utils/graph/rendering/connectionStyles.js'
+import { getCurvedConfig, getParticleConfig, getNeuronConfig, getAdaptiveStyle, getEdgeWidth, getEdgeOpacity } from '@/utils/graph/rendering/connectionStyles.js'
 import { screenToNDC, isPointInPolygon, computeDiveInTarget, computePathHighlightSet } from '@/utils/graph/interactions/modes3d.js'
 
 export function useGraph3DRenderer() {
@@ -34,6 +34,33 @@ export function useGraph3DRenderer() {
 
     const ForceGraph3D = (await import('3d-force-graph')).default
     const THREE = await import('three')
+
+    // Create a canvas-based text sprite for node labels
+    function _createTextSprite(text, color) {
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')
+      canvas.width = 256
+      canvas.height = 64
+      ctx.font = 'bold 28px sans-serif'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillStyle = color
+      ctx.globalAlpha = 0.85
+      // Truncate long labels
+      const label = text.length > 20 ? text.substring(0, 18) + '\u2026' : text
+      ctx.fillText(label, 128, 32)
+
+      const texture = new THREE.CanvasTexture(canvas)
+      texture.needsUpdate = true
+      const spriteMat = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: false,
+      })
+      const sprite = new THREE.Sprite(spriteMat)
+      sprite.scale.set(12, 3, 1)
+      return sprite
+    }
 
     const graph = ForceGraph3D()(container)
       .width(width)
@@ -89,9 +116,18 @@ export function useGraph3DRenderer() {
         mesh.add(new THREE.Mesh(glowGeo, glowMat))
       }
 
-      return mesh
+      const group = new THREE.Group()
+      group.add(mesh)
+
+      // Add text label below the sphere
+      const labelSprite = _createTextSprite(node.id || node.name || '', '#ffffff')
+      labelSprite.position.set(0, -(radius + 2.5), 0)
+      group.add(labelSprite)
+
+      return group
     })
     graph.nodeThreeObjectExtend(false)
+    graph.nodeLabel(node => node.id)
 
     // Connection style
     _applyConnectionStyle(graph, options.connectionStyle || CONNECTION_STYLES.CURVED, graphData)
@@ -170,6 +206,21 @@ export function useGraph3DRenderer() {
           return getCurvedConfig(link.weight || 0.5).curvature
         })
         graph.linkDirectionalParticles(0)
+        break
+
+      case CONNECTION_STYLES.NEURON:
+        graph.linkCurvature(link => {
+          const cfg = getNeuronConfig(link.weight || 0.5)
+          return cfg.curvature
+        })
+        graph.linkDirectionalParticles(link => {
+          const cfg = getNeuronConfig(link.weight || 0.5)
+          return cfg.emissionRate
+        })
+        graph.linkDirectionalParticleSpeed(link => {
+          const cfg = getNeuronConfig(link.weight || 0.5)
+          return cfg.speed * 0.001
+        })
         break
 
       case CONNECTION_STYLES.ADAPTIVE:

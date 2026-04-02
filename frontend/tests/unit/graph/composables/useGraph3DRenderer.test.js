@@ -8,6 +8,10 @@ vi.mock('three', () => {
   function MeshBasicMaterial() {}
   function Color(c) { this.value = c }
   function Mesh() { this.add = vi.fn(); this.scale = { setScalar: vi.fn() }; this.material = {} }
+  function Group() { this.add = vi.fn(); this.scale = { setScalar: vi.fn() } }
+  function Sprite() { this.position = { set: vi.fn() }; this.scale = { set: vi.fn() } }
+  function SpriteMaterial() {}
+  function CanvasTexture() { this.needsUpdate = false }
   function AmbientLight() {}
   function PointLight() { this.position = { set: vi.fn() } }
   function Vector3() { this.project = vi.fn().mockReturnThis() }
@@ -18,6 +22,10 @@ vi.mock('three', () => {
     MeshBasicMaterial: vi.fn().mockImplementation(function (...args) { return new MeshBasicMaterial(...args) }),
     Color: vi.fn().mockImplementation(function (c) { return new Color(c) }),
     Mesh: vi.fn().mockImplementation(function (...args) { return new Mesh(...args) }),
+    Group: vi.fn().mockImplementation(function (...args) { return new Group(...args) }),
+    Sprite: vi.fn().mockImplementation(function (...args) { return new Sprite(...args) }),
+    SpriteMaterial: vi.fn().mockImplementation(function (...args) { return new SpriteMaterial(...args) }),
+    CanvasTexture: vi.fn().mockImplementation(function (...args) { return new CanvasTexture(...args) }),
     AmbientLight: vi.fn().mockImplementation(function (...args) { return new AmbientLight(...args) }),
     PointLight: vi.fn().mockImplementation(function (...args) { return new PointLight(...args) }),
     BackSide: 1,
@@ -44,6 +52,7 @@ vi.mock('3d-force-graph', () => {
     }),
     nodeThreeObject: vi.fn().mockReturnThis(),
     nodeThreeObjectExtend: vi.fn().mockReturnThis(),
+    nodeLabel: vi.fn().mockReturnThis(),
     linkCurvature: vi.fn().mockReturnThis(),
     linkDirectionalParticles: vi.fn().mockReturnThis(),
     linkDirectionalParticleSpeed: vi.fn().mockReturnThis(),
