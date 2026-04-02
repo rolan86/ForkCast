@@ -660,6 +660,7 @@ function handleSelectionAction(actionId) {
         :activeFilters="activeFilters"
         :settingsPanelOpen="settingsPanelOpen"
         :currentLayout="graphState.layout"
+        :visualMode="graphState.visualMode"
         :interactionInstruction="interactionMeta.instruction"
         @update:searchQuery="searchQuery = $event"
         @toggle-filter="toggleFilter"
