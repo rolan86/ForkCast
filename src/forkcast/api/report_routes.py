@@ -58,17 +58,25 @@ async def list_reports(simulation_id: Optional[str] = Query(default=None)):
     with get_db(settings.db_path) as conn:
         if simulation_id is not None:
             rows = conn.execute(
-                "SELECT id, simulation_id, status, content_markdown, created_at, completed_at "
+                "SELECT id, simulation_id, status, content_markdown, structured_data_json, "
+                "created_at, completed_at "
                 "FROM reports WHERE simulation_id = ? ORDER BY created_at DESC",
                 (simulation_id,),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT id, simulation_id, status, content_markdown, created_at, completed_at "
+                "SELECT id, simulation_id, status, content_markdown, structured_data_json, "
+                "created_at, completed_at "
                 "FROM reports ORDER BY created_at DESC"
             ).fetchall()
 
-    return success([dict(row) for row in rows])
+    results = []
+    for row in rows:
+        d = dict(row)
+        raw = d.pop("structured_data_json", None)
+        d["structured_data"] = json.loads(raw) if raw else None
+        results.append(d)
+    return success(results)
 
 
 @router.post("/reports/generate")
@@ -186,7 +194,7 @@ async def get_report(report_id: str):
     with get_db(settings.db_path) as conn:
         row = conn.execute(
             "SELECT id, simulation_id, status, content_markdown, tool_history_json, "
-            "created_at, completed_at FROM reports WHERE id = ?",
+            "structured_data_json, created_at, completed_at FROM reports WHERE id = ?",
             (report_id,),
         ).fetchone()
 
@@ -202,6 +210,8 @@ async def get_report(report_id: str):
     else:
         d["tool_history"] = []
     d.pop("tool_history_json", None)
+    raw_sd = d.pop("structured_data_json", None)
+    d["structured_data"] = json.loads(raw_sd) if raw_sd else None
     return success(d)
 
 

@@ -15,6 +15,7 @@ from forkcast.domains.loader import load_domain, read_prompt
 from forkcast.graph.graph_store import load_graph
 from forkcast.llm.client import LLMClient
 from forkcast.report.models import ReportResult, ToolContext
+from forkcast.report.postprocess import postprocess_report
 from forkcast.report.tools import REPORT_TOOLS, execute_tool
 from forkcast.simulation.models import AgentProfile
 
@@ -155,6 +156,7 @@ def _update_report_status(
     status: str,
     content_markdown: str | None = None,
     tool_history: list | None = None,
+    structured_data_json: str | None = None,
 ) -> None:
     """Update report status (and optionally content) in the database."""
     now = datetime.now(timezone.utc).isoformat()
@@ -162,11 +164,12 @@ def _update_report_status(
         if status == "completed" and content_markdown is not None:
             conn.execute(
                 "UPDATE reports SET status = ?, content_markdown = ?, "
-                "tool_history_json = ?, completed_at = ? WHERE id = ?",
+                "tool_history_json = ?, structured_data_json = ?, completed_at = ? WHERE id = ?",
                 (
                     status,
                     content_markdown,
                     json.dumps(tool_history or []),
+                    structured_data_json,
                     now,
                     report_id,
                 ),
@@ -231,6 +234,7 @@ def generate_report(
     chroma_collection = _load_chroma_optional(chroma_dir)
 
     # --- Load domain guidelines ---
+    domain = None
     try:
         domain_name = get_project_domain(db_path, project_id)
         domain = load_domain(domain_name, domains_dir)
@@ -348,6 +352,18 @@ def generate_report(
             total_output_tokens += response.output_tokens
             final_text = response.text
 
+        # Post-process: extract structured data if domain supports it
+        structured_data = None
+        structured_data_json_str = None
+        if domain is not None:
+            try:
+                _emit(on_progress, stage="postprocessing", message="Extracting structured data...")
+                structured_data = postprocess_report(final_text, domain, client)
+                if structured_data is not None:
+                    structured_data_json_str = json.dumps(structured_data)
+            except Exception as exc:
+                logger.warning("Post-processing failed: %s — report saved without structured data", exc)
+
         # Persist completed report
         _update_report_status(
             db_path,
@@ -355,6 +371,7 @@ def generate_report(
             status="completed",
             content_markdown=final_text,
             tool_history=tool_history,
+            structured_data_json=structured_data_json_str,
         )
 
         _log_token_usage(
@@ -377,6 +394,7 @@ def generate_report(
             simulation_id=simulation_id,
             content_markdown=final_text,
             tool_rounds=tool_rounds,
+            structured_data=structured_data,
             tokens_used={
                 "input": total_input_tokens,
                 "output": total_output_tokens,

@@ -18,6 +18,7 @@ class ReportResult:
     simulation_id: str
     content_markdown: str
     tool_rounds: int
+    structured_data: dict | None = None
     tokens_used: dict[str, int] = field(default_factory=dict)
 
 

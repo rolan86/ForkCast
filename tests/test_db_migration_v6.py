@@ -62,7 +62,7 @@ def test_fresh_db_has_simulation_id_column(tmp_path: Path) -> None:
 
 
 def test_fresh_db_version_is_6(tmp_path: Path) -> None:
-    """Fresh DB should be at schema version 6."""
+    """Fresh DB should be at schema version 7 (latest)."""
     db_path = tmp_path / "test.db"
     init_db(db_path)
 
@@ -72,7 +72,7 @@ def test_fresh_db_version_is_6(tmp_path: Path) -> None:
     finally:
         conn.close()
 
-    assert version == 6, f"Expected schema version 6, got {version}"
+    assert version == 7, f"Expected schema version 7, got {version}"
 
 
 def test_v5_to_v6_migration_adds_simulation_id(tmp_path: Path) -> None:
@@ -116,7 +116,7 @@ def test_v5_to_v6_migration_adds_simulation_id(tmp_path: Path) -> None:
     assert row[0] is None, (
         f"Pre-existing row should have NULL simulation_id, got {row[0]!r}"
     )
-    assert version == 6, f"Expected schema version 6 after migration, got {version}"
+    assert version == 7, f"Expected schema version 7 after migration, got {version}"
 
 
 def test_v6_token_usage_index_exists(tmp_path: Path) -> None:

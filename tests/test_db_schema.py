@@ -24,11 +24,11 @@ class TestMigrationV3ToV4:
         init_db(tmp_db_path)
 
         conn = sqlite3.connect(tmp_db_path)
-        # Check schema version is now 6 (migration chain runs to latest)
+        # Check schema version is now 7 (migration chain runs to latest)
         row = conn.execute(
             "SELECT value FROM meta WHERE key = 'schema_version'"
         ).fetchone()
-        assert row[0] == "6"
+        assert row[0] == "7"
 
         # Check agent_mode column exists with default 'llm'
         cols = [
@@ -52,7 +52,7 @@ class TestMigrationV3ToV4:
         assert row[0] == "llm"
 
     def test_fresh_db_has_agent_mode_column(self, tmp_db_path):
-        """A fresh database should include agent_mode column at version 6."""
+        """A fresh database should include agent_mode column at version 7."""
         from forkcast.db.connection import init_db
 
         init_db(tmp_db_path)
@@ -62,7 +62,7 @@ class TestMigrationV3ToV4:
         row = conn.execute(
             "SELECT value FROM meta WHERE key = 'schema_version'"
         ).fetchone()
-        assert row[0] == "6"
+        assert row[0] == "7"
 
         # Check agent_mode column exists
         cols = [
