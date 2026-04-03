@@ -10,7 +10,8 @@
  */
 
 import * as d3 from 'd3'
-import { FORCE_LAYOUT_CONFIG } from '@/constants/graph.js'
+import { FORCE_LAYOUT_CONFIG, CONVERGENCE_CONFIG } from '@/constants/graph.js'
+import { computeKineticEnergy, hasConverged, adaptAlphaDecay } from './convergence.js'
 
 /**
  * Run force simulation on graph nodes and edges
@@ -31,7 +32,8 @@ export function runForceLayout(nodes, edges, options = {}) {
     velocityDecay = 0.4,
     typeGravity = 0.1, // Entity-type gravity strength
     centralBias = 0.05, // Central node pull strength
-    iterations = 300, // Simulation iterations (0 = infinite)
+    iterations = 300, // Simulation iterations (0 = live/interactive)
+    convergence = true, // Adaptive convergence (replaces fixed iterations when > 0)
   } = options
 
   // Note: callers are responsible for cloning if they don't want input mutated.
@@ -83,8 +85,27 @@ export function runForceLayout(nodes, edges, options = {}) {
     simulation.velocityDecay(velocityDecay)
   }
 
-  // Run for specified iterations or until convergence
-  if (iterations > 0) {
+  // Run simulation: adaptive convergence, fixed iterations, or live mode
+  // iterations === 0 means live/interactive — never stop or tick manually
+  if (iterations > 0 && convergence) {
+    simulation.stop()
+    const { energyThreshold, maxIterations, minAlphaDecay, maxAlphaDecay, adaptRate } = CONVERGENCE_CONFIG
+    const decayBounds = { min: minAlphaDecay, max: maxAlphaDecay, adaptRate }
+    let prevEnergy = null
+    for (let i = 0; i < maxIterations; i++) {
+      simulation.tick()
+      const energy = computeKineticEnergy(nodes)
+      if (hasConverged(energy, energyThreshold, i, maxIterations - 1)) break
+      if (prevEnergy !== null && prevEnergy > 0) {
+        simulation.alphaDecay(adaptAlphaDecay(
+          simulation.alphaDecay(),
+          (prevEnergy - energy) / prevEnergy,
+          decayBounds
+        ))
+      }
+      prevEnergy = energy
+    }
+  } else if (iterations > 0) {
     simulation.stop()
     for (let i = 0; i < iterations; i++) {
       simulation.tick()
