@@ -30,7 +30,8 @@ const layoutRegistry = new Map([
       velocityDecay: 0.4,
       typeGravity: 0.1,
       centralBias: 0.05,
-      iterations: 0,
+      iterations: 0,        // 0 = live/interactive mode (D3 runs its own timer)
+      convergence: true,     // Adaptive convergence when iterations > 0
     },
     supportsTransitions: true,
     supportsClustering: true,
