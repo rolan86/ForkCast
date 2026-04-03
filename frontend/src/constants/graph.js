@@ -62,6 +62,18 @@ export const FORCE_LAYOUT_CONFIG = {
 }
 
 /**
+ * Convergence configuration for adaptive force layout
+ * Energy-based convergence with RK45-inspired adaptive step sizing
+ */
+export const CONVERGENCE_CONFIG = {
+  energyThreshold: 0.5,
+  maxIterations: 800,
+  minAlphaDecay: 0.005,
+  maxAlphaDecay: 0.05,
+  adaptRate: 0.2,
+}
+
+/**
  * Hierarchical layout configuration
  * Default parameters for tree-based layout
  */
