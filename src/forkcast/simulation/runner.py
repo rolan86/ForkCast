@@ -30,6 +30,7 @@ def write_checkpoint(
     platform_index: int,
     completed_platforms: list[str],
     state: "SimulationState",
+    dynamics: "DynamicsState | None" = None,
 ) -> None:
     """Write checkpoint after a fully completed round."""
     checkpoint = {
@@ -44,9 +45,12 @@ def write_checkpoint(
     tmp_path.write_text(json.dumps(checkpoint), encoding="utf-8")
     tmp_path.rename(cp_path)
 
+    state_dict = state.to_dict()
+    if dynamics is not None:
+        state_dict["dynamics_state"] = dynamics.to_dict()
     state_path = sim_dir / f"sim_state_r{round_num}.json"
     state_tmp = sim_dir / f"sim_state_r{round_num}.json.tmp"
-    state_tmp.write_text(json.dumps(state.to_dict()), encoding="utf-8")
+    state_tmp.write_text(json.dumps(state_dict), encoding="utf-8")
     state_tmp.rename(state_path)
 
     # Clean up older state snapshots (keep only latest)
@@ -131,6 +135,38 @@ def run_simulation(
         raise FileNotFoundError(f"Profiles not found: {profiles_path}")
     profiles = [AgentProfile(**p) for p in json.loads(profiles_path.read_text(encoding="utf-8"))]
 
+    # Initialize dynamics (requires forkcast-nextlevel)
+    dynamics = None
+    dynamics_enabled = config.circadian_enabled or config.engagement_enabled
+    if dynamics_enabled:
+        from forkcast.simulation.dynamics import HAS_DYNAMICS
+        if HAS_DYNAMICS:
+            from forkcast.simulation.dynamics import (
+                CircadianModel, DynamicsState, create_integrator, compute_phase_offset,
+            )
+            integrator = create_integrator(
+                config.integrator_method,
+                order=config.integrator_order,
+                tolerance=config.integrator_tolerance,
+                max_order=config.integrator_max_order,
+            )
+            # Try to restore dynamics from checkpoint (resume case)
+            checkpoint = read_checkpoint(sim_dir)
+            if checkpoint is not None:
+                cp_round = checkpoint.get("last_completed_round", 0)
+                state_path = sim_dir / f"sim_state_r{cp_round}.json"
+                if state_path.exists():
+                    state_data = json.loads(state_path.read_text(encoding="utf-8"))
+                    if "dynamics_state" in state_data:
+                        dynamics = DynamicsState.from_dict(state_data["dynamics_state"], integrator)
+            # Fresh initialization (no checkpoint or pre-dynamics checkpoint)
+            if dynamics is None:
+                dynamics = DynamicsState(integrator=integrator)
+                for p in profiles:
+                    dynamics.circadian_models[p.agent_id] = CircadianModel(
+                        phase_offset=compute_phase_offset(p.name, p.profession),
+                    )
+
     # Load domain for agent system prompt
     with get_db(db_path) as conn:
         project = conn.execute("SELECT domain FROM projects WHERE id = ?", (project_id,)).fetchone()
@@ -204,6 +240,7 @@ def run_simulation(
                             platform_index=pidx,
                             completed_platforms=completed_platforms,
                             state=eng.state,
+                            dynamics=dynamics,
                         )
 
                     engine_result = engine.run(
@@ -213,6 +250,7 @@ def run_simulation(
                         on_action=on_action,
                         on_round=round_cb,
                         on_round_complete=round_complete_cb,
+                        dynamics=dynamics,
                     )
                     decision = engine_result.get("decision_tokens", {})
                     creative = engine_result.get("creative_tokens", {})

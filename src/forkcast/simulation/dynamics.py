@@ -1,4 +1,27 @@
-"""Dynamics helpers — carrying capacity computation and extension hooks."""
+"""Dynamics helpers — carrying capacity computation and extension hooks.
+
+Re-exports ODE classes from forkcast-nextlevel when available. The runner
+and engine import from this module so they never need to know whether the
+proprietary package is installed.
+"""
+
+# Re-export proprietary dynamics classes (graceful degradation)
+try:
+    from forkcast_nextlevel.simulation.dynamics import (  # noqa: F401
+        CircadianModel,
+        DynamicsState,
+        EngagementModel,
+        EulerIntegrator,
+        Integrator,
+        RKIntegrator,
+        AdaptiveOrderIntegrator,
+        create_integrator,
+        compute_phase_offset,
+    )
+
+    HAS_DYNAMICS = True
+except ImportError:
+    HAS_DYNAMICS = False
 
 
 def compute_carrying_capacity(
