@@ -54,6 +54,13 @@ class SimulationConfig:
     decision_model: str = "claude-haiku-4-5"
     creative_model: str = "claude-sonnet-4-6"
     compress_feed: bool = False
+    # Dynamics
+    circadian_enabled: bool = True
+    engagement_enabled: bool = True
+    integrator_method: str = "euler"
+    integrator_order: int = 4
+    integrator_tolerance: float = 1e-6
+    integrator_max_order: int = 8
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -71,6 +78,12 @@ class SimulationConfig:
             "decision_model": self.decision_model,
             "creative_model": self.creative_model,
             "compress_feed": self.compress_feed,
+            "circadian_enabled": self.circadian_enabled,
+            "engagement_enabled": self.engagement_enabled,
+            "integrator_method": self.integrator_method,
+            "integrator_order": self.integrator_order,
+            "integrator_tolerance": self.integrator_tolerance,
+            "integrator_max_order": self.integrator_max_order,
         }
 
 
