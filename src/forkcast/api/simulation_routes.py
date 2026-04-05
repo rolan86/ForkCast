@@ -50,6 +50,12 @@ class UpdateSettingsRequest(BaseModel):
     decision_model: str | None = None
     creative_model: str | None = None
     compress_feed: bool | None = None
+    circadian_enabled: bool | None = None
+    engagement_enabled: bool | None = None
+    integrator_method: str | None = None
+    integrator_order: int | None = None
+    integrator_tolerance: float | None = None
+    integrator_max_order: int | None = None
 
 
 @router.post("")
@@ -284,6 +290,30 @@ async def update_settings(simulation_id: str, req: UpdateSettingsRequest):
         config_updates["creative_model"] = req.creative_model
     if req.compress_feed is not None:
         config_updates["compress_feed"] = req.compress_feed
+
+    # Dynamics fields
+    _VALID_METHODS = {"euler", "rk", "adaptive"}
+    _VALID_ORDERS = {2, 4, 6, 8}
+    if req.circadian_enabled is not None:
+        config_updates["circadian_enabled"] = req.circadian_enabled
+    if req.engagement_enabled is not None:
+        config_updates["engagement_enabled"] = req.engagement_enabled
+    if req.integrator_method is not None:
+        if req.integrator_method not in _VALID_METHODS:
+            return error(f"integrator_method must be one of: {sorted(_VALID_METHODS)}", status_code=422)
+        config_updates["integrator_method"] = req.integrator_method
+    if req.integrator_order is not None:
+        if req.integrator_order not in _VALID_ORDERS:
+            return error(f"integrator_order must be one of: {sorted(_VALID_ORDERS)}", status_code=422)
+        config_updates["integrator_order"] = req.integrator_order
+    if req.integrator_tolerance is not None:
+        if req.integrator_tolerance <= 0:
+            return error("integrator_tolerance must be > 0", status_code=422)
+        config_updates["integrator_tolerance"] = req.integrator_tolerance
+    if req.integrator_max_order is not None:
+        if req.integrator_max_order not in _VALID_ORDERS:
+            return error(f"integrator_max_order must be one of: {sorted(_VALID_ORDERS)}", status_code=422)
+        config_updates["integrator_max_order"] = req.integrator_max_order
 
     if config_updates:
         with get_db(settings.db_path) as conn:
