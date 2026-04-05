@@ -28,6 +28,15 @@ const decisionModel = ref(simConfig.decision_model || 'claude-haiku-4-5')
 const creativeModel = ref(simConfig.creative_model || 'claude-sonnet-4-6')
 const compressFeed = ref(simConfig.compress_feed || false)
 
+// Dynamics settings
+const circadianEnabled = ref(simConfig.circadian_enabled ?? true)
+const engagementEnabled = ref(simConfig.engagement_enabled ?? true)
+const integratorMethod = ref(simConfig.integrator_method ?? 'euler')
+const integratorOrder = ref(simConfig.integrator_order ?? 4)
+const integratorTolerance = ref(simConfig.integrator_tolerance ?? 1e-6)
+const integratorMaxOrder = ref(simConfig.integrator_max_order ?? 8)
+const dynamicsExpanded = ref(false)
+
 const TIMING_PRESETS = [
   { label: 'Quick Test', hours: 6, interval: 30 },
   { label: 'Standard', hours: 48, interval: 30 },
@@ -88,6 +97,12 @@ watch(() => props.simulation, (sim) => {
   decisionModel.value = cfg.decision_model || 'claude-haiku-4-5'
   creativeModel.value = cfg.creative_model || 'claude-sonnet-4-6'
   compressFeed.value = cfg.compress_feed || false
+  circadianEnabled.value = cfg.circadian_enabled ?? true
+  engagementEnabled.value = cfg.engagement_enabled ?? true
+  integratorMethod.value = cfg.integrator_method ?? 'euler'
+  integratorOrder.value = cfg.integrator_order ?? 4
+  integratorTolerance.value = cfg.integrator_tolerance ?? 1e-6
+  integratorMaxOrder.value = cfg.integrator_max_order ?? 8
   const match = TIMING_PRESETS.find(p => p.hours === totalHours.value && p.interval === minutesPerRound.value)
   activePreset.value = match ? match.label : 'Custom'
 }, { deep: true })
@@ -123,6 +138,16 @@ async function save() {
       payload.decision_model = decisionModel.value
       payload.creative_model = creativeModel.value
       payload.compress_feed = compressFeed.value
+      payload.circadian_enabled = circadianEnabled.value
+      payload.engagement_enabled = engagementEnabled.value
+      payload.integrator_method = integratorMethod.value
+      if (integratorMethod.value === 'rk') {
+        payload.integrator_order = integratorOrder.value
+      }
+      if (integratorMethod.value === 'adaptive') {
+        payload.integrator_tolerance = integratorTolerance.value
+        payload.integrator_max_order = integratorMaxOrder.value
+      }
     }
     await updateSettings(props.simulation.id, payload)
     emit('updated')
@@ -366,6 +391,115 @@ async function save() {
           <span :style="{ color: 'var(--text-tertiary)' }">(reduces cost, may slightly reduce interaction specificity)</span>
         </span>
       </label>
+    </div>
+
+    <!-- Advanced Dynamics (Claude engine only) -->
+    <div v-if="engine === 'claude'">
+      <button
+        class="w-full flex items-center justify-between text-xs py-2"
+        :style="{ color: 'var(--text-secondary)' }"
+        :disabled="readonly"
+        @click="dynamicsExpanded = !dynamicsExpanded"
+      >
+        <span class="uppercase tracking-wider">Advanced Dynamics</span>
+        <span class="transition-transform duration-200" :style="{ transform: dynamicsExpanded ? 'rotate(90deg)' : '' }">▸</span>
+      </button>
+      <div
+        class="grid transition-all duration-200"
+        :style="{ gridTemplateRows: dynamicsExpanded ? '1fr' : '0fr' }"
+      >
+        <div class="overflow-hidden">
+          <div class="space-y-3 pb-3">
+            <!-- Circadian toggle -->
+            <label class="flex items-start gap-2" :class="{ 'cursor-pointer': !readonly, 'opacity-60': readonly }">
+              <input type="checkbox" v-model="circadianEnabled" :disabled="readonly" class="mt-0.5" />
+              <div>
+                <span class="text-xs block" :style="{ color: 'var(--text-primary)' }">Circadian Agent Rhythms</span>
+                <span class="text-xs block" :style="{ color: 'var(--text-tertiary)' }">Agents have natural activity cycles — early birds, night owls</span>
+              </div>
+            </label>
+
+            <!-- Engagement toggle -->
+            <label class="flex items-start gap-2" :class="{ 'cursor-pointer': !readonly, 'opacity-60': readonly }">
+              <input type="checkbox" v-model="engagementEnabled" :disabled="readonly" class="mt-0.5" />
+              <div>
+                <span class="text-xs block" :style="{ color: 'var(--text-primary)' }">Engagement Dynamics</span>
+                <span class="text-xs block" :style="{ color: 'var(--text-tertiary)' }">Posts gain traction following logistic growth curves</span>
+              </div>
+            </label>
+
+            <!-- Integration Method -->
+            <div v-if="circadianEnabled || engagementEnabled" class="pt-2">
+              <label class="text-xs mb-2 block" :style="{ color: 'var(--text-secondary)' }">Integration Method</label>
+              <div class="space-y-2">
+                <label
+                  v-for="method in caps.integrators"
+                  :key="method.id"
+                  class="flex items-start gap-2"
+                  :class="{ 'cursor-pointer': !readonly, 'opacity-60': readonly }"
+                >
+                  <input type="radio" :value="method.id" v-model="integratorMethod" :disabled="readonly" class="mt-0.5" />
+                  <div>
+                    <span class="text-xs block font-medium" :style="{ color: 'var(--text-primary)' }">{{ method.name }}</span>
+                    <span class="text-xs block" :style="{ color: 'var(--text-tertiary)' }">{{ method.description }}</span>
+                  </div>
+                </label>
+              </div>
+
+              <!-- RK order selector -->
+              <div v-if="integratorMethod === 'rk'" class="mt-3">
+                <label class="text-xs mb-1 block" :style="{ color: 'var(--text-secondary)' }">Order</label>
+                <div class="flex gap-1">
+                  <button
+                    v-for="o in [2, 4, 6, 8]" :key="o"
+                    class="px-3 py-1 rounded text-xs border transition-colors"
+                    :style="{
+                      backgroundColor: integratorOrder === o ? 'var(--accent-surface)' : 'transparent',
+                      borderColor: integratorOrder === o ? 'var(--accent)' : 'var(--border)',
+                      color: integratorOrder === o ? 'var(--accent)' : 'var(--text-secondary)',
+                      cursor: readonly ? 'not-allowed' : 'pointer',
+                    }"
+                    :disabled="readonly"
+                    @click="integratorOrder = o"
+                  >{{ o }}</button>
+                </div>
+              </div>
+
+              <!-- Adaptive params -->
+              <div v-if="integratorMethod === 'adaptive'" class="mt-3 space-y-2">
+                <div>
+                  <label class="text-xs mb-1 block" :style="{ color: 'var(--text-secondary)' }">Tolerance</label>
+                  <input
+                    type="number"
+                    v-model.number="integratorTolerance"
+                    step="0.000001" min="0.000001"
+                    :disabled="readonly"
+                    class="w-32 px-2 py-1 rounded-md text-xs border"
+                    :style="{ borderColor: 'var(--border)', backgroundColor: 'var(--surface-raised)', color: 'var(--text-primary)' }"
+                  />
+                </div>
+                <div>
+                  <label class="text-xs mb-1 block" :style="{ color: 'var(--text-secondary)' }">Max Order</label>
+                  <div class="flex gap-1">
+                    <button
+                      v-for="o in [2, 4, 6, 8]" :key="o"
+                      class="px-3 py-1 rounded text-xs border transition-colors"
+                      :style="{
+                        backgroundColor: integratorMaxOrder === o ? 'var(--accent-surface)' : 'transparent',
+                        borderColor: integratorMaxOrder === o ? 'var(--accent)' : 'var(--border)',
+                        color: integratorMaxOrder === o ? 'var(--accent)' : 'var(--text-secondary)',
+                        cursor: readonly ? 'not-allowed' : 'pointer',
+                      }"
+                      :disabled="readonly"
+                      @click="integratorMaxOrder = o"
+                    >{{ o }}</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Profile Reuse -->
