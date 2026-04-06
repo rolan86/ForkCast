@@ -26,4 +26,26 @@ async def get_capabilities():
             "oasis": _check_oasis(),
         },
         "models": get_available_models(settings),
+        "integrators": {
+            "methods": [
+                {
+                    "id": "euler",
+                    "name": "Euler",
+                    "description": "Fastest. Single evaluation per step. Best for most simulations.",
+                    "params": [],
+                },
+                {
+                    "id": "rk",
+                    "name": "Runge-Kutta",
+                    "description": "Higher accuracy. Choose order 2/4/6/8 — higher = more accurate but slower.",
+                    "params": ["order"],
+                },
+                {
+                    "id": "adaptive",
+                    "name": "Adaptive Convergence",
+                    "description": "Auto-increases order until result stabilizes within tolerance. Most accurate but most expensive.",
+                    "params": ["tolerance", "max_order"],
+                },
+            ],
+        },
     })

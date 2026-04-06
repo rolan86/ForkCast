@@ -5,6 +5,7 @@ export const useCapabilitiesStore = defineStore('capabilities', {
   state: () => ({
     engines: {},
     models: [],
+    integrators: [],
     loaded: false,
   }),
 
@@ -27,6 +28,7 @@ export const useCapabilitiesStore = defineStore('capabilities', {
         const data = await getCapabilities()
         this.engines = data.engines
         this.models = data.models
+        this.integrators = data.integrators?.methods || []
         this.loaded = true
       } catch (e) {
         console.warn('Failed to fetch capabilities:', e)

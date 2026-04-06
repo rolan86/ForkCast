@@ -1,10 +1,12 @@
 """Claude simulation engine — runs agents in-process via tool_use."""
 
+from __future__ import annotations
+
 import logging
 import math
 import random
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from jinja2 import Template
 
@@ -12,6 +14,9 @@ from forkcast.llm.client import LLMClient
 from forkcast.simulation.action import Action, ActionType
 from forkcast.simulation.models import AgentProfile, SimulationConfig
 from forkcast.simulation.state import SimulationState
+
+if TYPE_CHECKING:
+    from forkcast.simulation.dynamics import DynamicsState
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +222,7 @@ def _determine_active_agents(
     profiles: list[AgentProfile],
     config: SimulationConfig,
     current_hour: int,
+    dynamics: DynamicsState | None = None,
 ) -> list[AgentProfile]:
     """Determine which agents are active this round based on time of day."""
     if current_hour in config.peak_hours:
@@ -228,9 +234,15 @@ def _determine_active_agents(
 
     # Base probability: each agent has ~60% chance of being active in a normal round
     base_prob = 0.6
-    prob = min(1.0, base_prob * multiplier)
 
-    active = [p for p in profiles if random.random() < prob]
+    active = []
+    for p in profiles:
+        if dynamics is not None and p.agent_id in dynamics.circadian_models:
+            prob = dynamics.circadian_models[p.agent_id].get_activation_probability()
+        else:
+            prob = min(1.0, base_prob * multiplier)
+        if random.random() < prob:
+            active.append(p)
     # Always at least one agent
     if not active:
         active = [random.choice(profiles)]
@@ -245,6 +257,7 @@ def _build_agent_context(
     seed_posts: list[str],
     agent_system_template: str,
     compress_feed: bool = False,
+    dynamics: DynamicsState | None = None,
 ) -> dict[str, Any]:
     """Build the system prompt and messages for one agent's decision turn."""
     template = Template(agent_system_template)
@@ -280,6 +293,20 @@ def _build_agent_context(
         for sp in seed_posts:
             parts.append(f"  - {sp}")
         parts.append("")
+
+    # Inject engagement dynamics signals
+    if dynamics and dynamics.engagement_models:
+        trending = [
+            m.get_engagement_context()
+            for m in dynamics.engagement_models.values()
+            if m.get_engagement_context()["trend_status"] in ("trending", "viral")
+        ]
+        if trending:
+            signals = ", ".join(
+                f"Post #{s['post_id']} is {s['trend_status']} ({s['saturation_pct']}% saturation)"
+                for s in trending
+            )
+            parts.append(f"\n[Platform signals: {signals}]")
 
     parts.append("What would you like to do? Use one of the available tools.")
 
@@ -319,6 +346,7 @@ class ClaudeEngine:
         on_action: Callable[[Action], None],
         on_round: Callable[[int, int], None] | None = None,
         on_round_complete: Callable[[int, int], None] | None = None,
+        dynamics: DynamicsState | None = None,
     ) -> dict[str, Any]:
         """Run the full simulation. Returns per-phase token usage stats."""
         feed_weights = config.platform_config.get(
@@ -347,7 +375,11 @@ class ClaudeEngine:
             if on_round:
                 on_round(round_num, total_rounds)
 
-            active = _determine_active_agents(profiles, config, current_hour)
+            # Pre-round: evolve circadian clocks
+            if dynamics is not None and config.circadian_enabled:
+                dynamics.evolve_circadian()
+
+            active = _determine_active_agents(profiles, config, current_hour, dynamics=dynamics)
 
             # Snapshot state at round start — all agents see the same feed
             round_snapshot = self.state.snapshot()
@@ -365,6 +397,7 @@ class ClaudeEngine:
                     seed_posts=config.seed_posts if round_num == 1 else [],
                     agent_system_template=self.agent_system_template,
                     compress_feed=config.compress_feed,
+                    dynamics=dynamics,
                 )
 
                 call_succeeded = True
@@ -433,6 +466,32 @@ class ClaudeEngine:
                 )
                 on_action(action)
                 action_count += 1
+
+            # Post-round: register new posts and evolve engagement
+            if dynamics is not None and config.engagement_enabled:
+                from forkcast.simulation.dynamics import compute_carrying_capacity
+                posts_before_round = len(round_snapshot.posts)
+                new_post_idx = 0
+                for profile, action_type, action_args, _ in buffered_actions:
+                    if action_type == ActionType.CREATE_POST:
+                        post_id = posts_before_round + new_post_idx
+                        new_post_idx += 1
+                        follower_count = len(self.state.followers.get(profile.agent_id, set()))
+                        k = compute_carrying_capacity(
+                            num_agents=len(profiles),
+                            follower_count=follower_count,
+                            hot_topics=config.hot_topics,
+                            post_content=action_args.get("content", ""),
+                            total_agents=len(profiles),
+                        )
+                        dynamics.register_post(post_id=post_id, carrying_capacity=k)
+                    elif action_type in (ActionType.LIKE_POST, ActionType.DISLIKE_POST):
+                        pid = action_args.get("post_id", -1)
+                        if pid in dynamics.engagement_models:
+                            dynamics.engagement_models[pid].inject_discrete_engagement(1)
+
+                dt = config.minutes_per_round / 60.0
+                dynamics.evolve_engagement(dt)
 
             if not self._stopped:
                 completed_rounds = round_num
