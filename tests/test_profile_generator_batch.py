@@ -242,15 +242,20 @@ class TestGenerateProfilesBatched:
             batch_size=2,
         )
 
-        assert len(progress_calls) == 2
-        assert progress_calls[0] == ("profile_batch", {
+        batch_calls = [c for c in progress_calls if c[0] == "profile_batch"]
+        profile_calls = [c for c in progress_calls if c[0] == "generating_profiles"]
+        assert len(batch_calls) == 2
+        assert batch_calls[0] == ("profile_batch", {
             "batch": 1, "total_batches": 2,
             "input_tokens": 1000, "output_tokens": 2000,
         })
-        assert progress_calls[1] == ("profile_batch", {
+        assert batch_calls[1] == ("profile_batch", {
             "batch": 2, "total_batches": 2,
             "input_tokens": 1000, "output_tokens": 2000,
         })
+        # Per-profile events: 4 entities = 4 per-profile callbacks
+        assert len(profile_calls) == 4
+        assert all("agent_name" in c[1] for c in profile_calls)
 
     def test_fallback_on_wrong_count(self, tmp_path):
         entities = _make_entities(3)
