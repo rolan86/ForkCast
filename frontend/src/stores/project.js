@@ -73,6 +73,12 @@ export const useProjectStore = defineStore('project', {
         message: data.stage + (data.current ? ` (${data.current}/${data.total})` : ''),
         type: 'progress',
       })
+      if (data.agent_name) {
+        this.simPrepareProgress.agentData = {
+          agent_name: data.agent_name,
+          agent_bio: data.agent_bio || '',
+        }
+      }
     },
     resetSimPrepareProgress() {
       this.simPrepareProgress = null

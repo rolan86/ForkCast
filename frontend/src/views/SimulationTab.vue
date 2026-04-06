@@ -11,6 +11,7 @@ import AgentAvatar from '@/components/AgentAvatar.vue'
 import PlatformBadge from '@/components/PlatformBadge.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import SimulationSettings from '@/components/SimulationSettings.vue'
+import PrepareVisualizer from '@/components/PrepareVisualizer.vue'
 import SimulationConfigView from '@/components/SimulationConfigView.vue'
 import AgentPopoverChat from '@/components/simulation/AgentPopoverChat.vue'
 
@@ -339,9 +340,8 @@ function formatDate(d) {
   </div>
 
   <!-- Preparing -->
-  <div v-else-if="viewState === 'preparing'" class="p-6">
-    <ProgressPanel
-      title="Preparing Simulation..."
+  <div v-else-if="viewState === 'preparing'" class="flex flex-col h-full">
+    <PrepareVisualizer
       :steps="PREPARE_STEPS"
       :currentStage="store.simPrepareProgress?.stage || ''"
       :progress="{ current: store.simPrepareProgress?.current, total: store.simPrepareProgress?.total }"
@@ -349,10 +349,12 @@ function formatDate(d) {
       :error="prepareError"
       :errorType="prepareErrorType"
       :resumable="prepareResumable"
+      :agentData="store.simPrepareProgress?.agentData || null"
       @cancel="viewState = 'empty'"
       @retry="prepareSimulation"
       @resume="prepareSimulation"
       @startOver="() => { viewState = 'empty' }"
+      @morphComplete="async () => { await loadPreparedState(currentSimId) }"
     />
   </div>
 
