@@ -282,6 +282,7 @@ def generate_profiles_batched(
     batch_size: int = 6,
 ) -> tuple[list[AgentProfile], list[dict[str, int]]]:
     """Generate profiles in batches. Returns (profiles, per_batch_token_records)."""
+    total_entities = len(entities)
     existing_sources = load_existing_profiles(profiles_dir)
     remaining = [e for e in entities if e["name"] not in existing_sources]
     batches = [remaining[i:i + batch_size] for i in range(0, len(remaining), batch_size)]
@@ -332,8 +333,20 @@ def generate_profiles_batched(
                     tokens["input"] += fb_tokens["input"]
                     tokens["output"] += fb_tokens["output"]
 
+        # Add per-profile events AFTER extend, using a running counter
+        base = len(profiles)
         profiles.extend(batch_profiles)
         token_records.append(tokens)
+
+        for idx, p in enumerate(batch_profiles):
+            if on_progress:
+                on_progress(
+                    "generating_profiles",
+                    current=base + idx + 1,
+                    total=total_entities,
+                    agent_name=f"@{p.username}",
+                    agent_bio=p.bio,
+                )
 
         # Incremental save after each batch
         save_profiles(profiles, profiles_dir)
