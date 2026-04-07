@@ -121,7 +121,10 @@ async function prepareExisting() {
   }
 }
 
+const prepareCompleteSimId = ref(null)
+
 function connectPrepareSSE(simId) {
+  prepareCompleteSimId.value = null
   sseConnection = simApi.streamPrepare(simId, {
     onMessage(data) {
       store.updateSimPrepareProgress(data)
@@ -133,8 +136,10 @@ function connectPrepareSSE(simId) {
     onError(message) {
       prepareError.value = message
     },
-    async onComplete() {
-      await loadPreparedState(simId)
+    onComplete() {
+      // Don't transition immediately — let PrepareVisualizer morph animation
+      // play first. Store the simId so @morphComplete can pick it up.
+      prepareCompleteSimId.value = simId
     },
     onDisconnect() {
       if (!prepareError.value) prepareError.value = 'Connection lost'
@@ -354,7 +359,7 @@ function formatDate(d) {
       @retry="prepareSimulation"
       @resume="prepareSimulation"
       @startOver="() => { viewState = 'empty' }"
-      @morphComplete="async () => { await loadPreparedState(currentSimId) }"
+      @morphComplete="async () => { await loadPreparedState(prepareCompleteSimId || currentSimId) }"
     />
   </div>
 

@@ -3,9 +3,10 @@ import { ref, shallowRef } from 'vue'
 const ACCENT = '#6366f1'
 const EDGE_OPACITY = 0.2
 const EDGE_MAX_DIST = 180
-const REPULSION = 800
+const BASE_REPULSION = 800
 const SPRING_K = 0.003
 const DAMPING = 0.92
+const CENTER_PULL = 0.0005
 const NODE_RADIUS_SEED = 4
 const NODE_RADIUS_AGENT = 6
 
@@ -194,12 +195,17 @@ export function useConstellationCanvas() {
     const ns = nodes.value
     if (state.value === 'morphing' || state.value === 'done') return
 
+    // Scale repulsion inversely with node count to prevent explosion
+    const repulsion = BASE_REPULSION / Math.max(1, ns.length * 0.15)
+    const cx = width / 2
+    const cy = height / 2
+
     for (let i = 0; i < ns.length; i++) {
       for (let j = i + 1; j < ns.length; j++) {
         const dx = ns[i].x - ns[j].x
         const dy = ns[i].y - ns[j].y
         const distSq = dx * dx + dy * dy + 1
-        const force = REPULSION / distSq
+        const force = repulsion / distSq
         const fx = (dx / Math.sqrt(distSq)) * force
         const fy = (dy / Math.sqrt(distSq)) * force
         ns[i].vx += fx
@@ -224,15 +230,19 @@ export function useConstellationCanvas() {
       b.vy -= fy
     })
 
-    // Apply velocity + damping + bounds
+    // Apply velocity + damping + centering + bounds
     ns.forEach(n => {
+      // Gentle pull toward center to prevent edge clustering
+      n.vx += (cx - n.x) * CENTER_PULL
+      n.vy += (cy - n.y) * CENTER_PULL
       n.vx *= DAMPING
       n.vy *= DAMPING
       n.x += n.vx
       n.y += n.vy
-      // Keep in bounds
-      n.x = Math.max(n.radius, Math.min(width - n.radius, n.x))
-      n.y = Math.max(n.radius, Math.min(height - n.radius, n.y))
+      // Keep in bounds with padding
+      const pad = n.radius + 4
+      n.x = Math.max(pad, Math.min(width - pad, n.x))
+      n.y = Math.max(pad, Math.min(height - pad, n.y))
       // Fade in
       if (n.opacity < 1) n.opacity = Math.min(1, n.opacity + n.fadeIn)
       // Pulse decay

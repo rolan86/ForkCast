@@ -88,10 +88,11 @@ describe('useConstellationCanvas', () => {
     const { canvas } = createMockCanvas()
     constellation.init(canvas)
 
-    // Add nodes close together
-    constellation.addSeedNode('#00d4ff')
-    constellation.addSeedNode('#818cf8')
-    // Edges form between nearby nodes
+    // Add enough nodes that at least one pair is within EDGE_MAX_DIST (180px)
+    for (let i = 0; i < 6; i++) {
+      constellation.addSeedNode('#00d4ff')
+    }
+    // With 6 nodes in a 480px range, at least one pair should be < 180px apart
     expect(constellation.edges.value.length).toBeGreaterThanOrEqual(1)
 
     constellation.destroy()
