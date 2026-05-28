@@ -30,6 +30,12 @@ const stepStatuses = ref(
 
 // Compute step statuses from currentStage
 watch(() => props.currentStage, (stage) => {
+  // Before any stage arrives, keep all steps pending — otherwise the
+  // prior-step-is-done rule below would mark every step completed on mount.
+  if (!stage) {
+    stepStatuses.value = props.steps.map(() => 'pending')
+    return
+  }
   let foundActive = false
   stepStatuses.value = props.steps.map(step => {
     if (foundActive) return 'pending'
@@ -99,6 +105,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   constellation.destroy()
+  seedsAdded = false
 })
 
 const tickerFallback = ref('')
@@ -140,7 +147,7 @@ watch(() => props.errorType, (type) => {
       />
 
       <!-- Error overlay -->
-      <div v-if="error" class="prepare-visualizer__error">
+      <div v-if="error" class="prepare-visualizer__error" role="alert" aria-live="assertive">
         <div
           class="prepare-visualizer__error-box"
           :style="{ borderColor: errorBorderColor }"

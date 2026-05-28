@@ -63,4 +63,32 @@ describe('PrepareVisualizer', () => {
       expect(wrapper.emitted('cancel')).toBeTruthy()
     }
   })
+
+  it('keeps every step pending when currentStage is empty on mount', () => {
+    // Regression: a previous version marked all steps "done" pre-stage
+    // because the prior-step-is-done rule ran even when no stage had arrived.
+    const wrapper = mount(PrepareVisualizer, { props: defaultProps })
+    const indicator = wrapper.findComponent({ name: 'StepIndicator' })
+    expect(indicator.exists()).toBe(true)
+    const statuses = indicator.props('steps').map(s => s.status)
+    expect(statuses).toEqual(['pending', 'pending', 'pending'])
+  })
+
+  it('marks prior steps done and current stage active', async () => {
+    const wrapper = mount(PrepareVisualizer, {
+      props: { ...defaultProps, currentStage: 'generating_profiles' },
+    })
+    const indicator = wrapper.findComponent({ name: 'StepIndicator' })
+    const statuses = indicator.props('steps').map(s => s.status)
+    expect(statuses).toEqual(['done', 'active', 'pending'])
+  })
+
+  it('gives the error overlay an assertive aria-live region', () => {
+    const wrapper = mount(PrepareVisualizer, {
+      props: { ...defaultProps, error: 'Boom' },
+    })
+    const alert = wrapper.find('[role="alert"]')
+    expect(alert.exists()).toBe(true)
+    expect(alert.attributes('aria-live')).toBe('assertive')
+  })
 })
