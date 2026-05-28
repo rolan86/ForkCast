@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import shutil
 from pathlib import Path
 from typing import Any, Callable
@@ -17,6 +18,50 @@ from forkcast.simulation.profile_generator import generate_profiles_batched
 logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[..., None] | None
+
+
+def _maybe_optimize_personas(
+    profiles: list[AgentProfile], profiles_dir: Path
+) -> list[AgentProfile]:
+    """Run NextLevel persona-distinctiveness optimizer if enabled and installed.
+
+    Gate is FORKCAST_OPTIMIZE_PERSONAS=1. The optimizer is part of the
+    proprietary forkcast_nextlevel package; if it's not importable we skip
+    silently (the env var lets self-hosters opt in, but doesn't require the
+    package).
+
+    On failure we re-raise: the user opted in, so a silent fallback would
+    hide bugs. Unset the env var to disable.
+    """
+    if os.environ.get("FORKCAST_OPTIMIZE_PERSONAS") != "1":
+        return profiles
+    try:
+        from forkcast_nextlevel.optimization import optimize_forkcast_profiles
+    except ImportError:
+        logger.info(
+            "FORKCAST_OPTIMIZE_PERSONAS=1 but forkcast_nextlevel not installed; "
+            "skipping persona optimization."
+        )
+        return profiles
+
+    logger.info("Running NextLevel persona-distinctiveness optimizer on %d profiles", len(profiles))
+    cost_mode = os.environ.get("FORKCAST_OPTIMIZE_PERSONAS_COST", "min")
+    optimized, stats = optimize_forkcast_profiles(profiles, cost=cost_mode)
+    logger.info(
+        "Persona optimizer: cost %.4f -> %.4f (%d/%d accepted, improved=%s)",
+        stats["initial_cost"],
+        stats["final_cost"],
+        stats["accepted"],
+        stats["iterations"],
+        stats["improved"],
+    )
+    # Persist optimized profiles to disk so downstream code reads the updated set.
+    profiles_dir.mkdir(parents=True, exist_ok=True)
+    (profiles_dir / "agents.json").write_text(
+        json.dumps([p.to_dict() for p in optimized], indent=2),
+        encoding="utf-8",
+    )
+    return optimized
 
 
 def find_reusable_profiles(
@@ -166,6 +211,10 @@ def prepare_simulation(
             on_progress=_profile_progress,
             model=prep_model,
         )
+
+        # Optional: NextLevel persona-distinctiveness optimization.
+        # Soft-imported so ForkCast core has no dep on the proprietary package.
+        profiles = _maybe_optimize_personas(profiles, profiles_dir)
     profiles_path = profiles_dir / "agents.json"
 
     # Read user timing overrides from DB row (may be None)
