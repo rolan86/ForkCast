@@ -350,3 +350,7 @@ If you use ForkCast as a hosted service, you must release your source code under
 ForkCast was inspired by [MiroFish](https://github.com/666ghj/MiroFish) by Guo Hangjiang. MiroFish proved that swarm intelligence prediction works at scale. ForkCast takes the concept in a different architectural direction.
 
 The optional OASIS simulation engine is powered by [OASIS](https://github.com/camel-ai/oasis) from the CAMEL-AI team.
+
+## Author
+
+Built by [Merryl D'Mello](https://reposition.dev). I write about multi-agent system design and AI engineering at [REPOSITION](https://reposition.dev), with free workshops and consulting.
