@@ -51,8 +51,8 @@ The result: a prediction grounded in collective dynamics, not a single model's b
 
 ```bash
 # Clone and install
-git clone https://github.com/merryldmello/forkcast.git
-cd forkcast
+git clone https://github.com/rolan86/ForkCast.git
+cd ForkCast
 pip install -e .
 
 # Configure
