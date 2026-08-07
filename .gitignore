@@ -30,6 +30,12 @@ chroma/
 .DS_Store
 Thumbs.db
 
+# macOS/Finder copy artifacts ("foo 2.py", ".venv 2/"). These are byte-identical
+# duplicates that reappear on iCloud or Finder copy and must never be committed;
+# a stray duplicate module inside src/ is especially confusing.
+* 2.*
+* 2/
+
 # Superpowers
 .superpowers/
 docs/superpowers/
