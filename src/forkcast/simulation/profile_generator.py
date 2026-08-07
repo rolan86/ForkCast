@@ -63,10 +63,12 @@ def generate_profile(
     requirement: str,
     persona_template: str,
     model: str | None = None,
-) -> tuple[AgentProfile, dict[str, int]]:
+) -> tuple[AgentProfile | None, dict[str, int]]:
     """Generate a single agent profile using extended thinking.
 
-    Returns (AgentProfile, {"input": N, "output": N}).
+    Returns (AgentProfile, {"input": N, "output": N}), or (None, tokens) when the
+    LLM response is not parseable as JSON. Callers must skip a None profile while
+    still accumulating the token counts, which are charged either way.
     """
     prompt = _build_persona_prompt(
         entity=entity,
@@ -90,7 +92,12 @@ def generate_profile(
         thinking_budget=8000,
     )
 
-    data = json.loads(strip_code_fences(response.text))
+    tokens = {"input": response.input_tokens, "output": response.output_tokens}
+    try:
+        data = json.loads(strip_code_fences(response.text))
+    except json.JSONDecodeError:
+        logger.warning("JSON parse failed for entity %s, skipping profile", entity["name"])
+        return None, tokens
 
     profile = AgentProfile(
         agent_id=agent_id,
@@ -106,7 +113,6 @@ def generate_profile(
         entity_source=entity["name"],
     )
 
-    tokens = {"input": response.input_tokens, "output": response.output_tokens}
     return profile, tokens
 
 
@@ -159,9 +165,11 @@ def generate_profiles(
             persona_template=persona_template,
             model=model,
         )
-        profiles.append(profile)
         total_input += tokens["input"]
         total_output += tokens["output"]
+        if profile is None:
+            continue
+        profiles.append(profile)
 
         # Incremental save after each profile
         save_profiles(profiles, profiles_dir)
@@ -179,8 +187,11 @@ def _generate_single_fallback(
     persona_template: str,
     model: str | None = None,
     agent_id: int = 0,
-) -> tuple[AgentProfile, dict[str, int]]:
-    """Generate a single profile using complete() — no thinking. Used as fallback for batch mismatches."""
+) -> tuple[AgentProfile | None, dict[str, int]]:
+    """Generate a single profile using complete() — no thinking. Used as fallback for batch mismatches.
+
+    Returns (None, tokens) when the response is not parseable as JSON.
+    """
     prompt = _build_persona_prompt(
         entity=entity,
         related_entities=entity.get("related", "").split(", ") if entity.get("related") and entity["related"] != "None" else [],
@@ -199,7 +210,12 @@ def _generate_single_fallback(
         system=system,
         max_tokens=4096,
     )
-    data = json.loads(strip_code_fences(response.text))
+    tokens = {"input": response.input_tokens, "output": response.output_tokens}
+    try:
+        data = json.loads(strip_code_fences(response.text))
+    except json.JSONDecodeError:
+        logger.warning("Fallback JSON parse failed for entity %s, skipping", entity["name"])
+        return None, tokens
     profile = AgentProfile(
         agent_id=agent_id,
         name=data.get("name", entity["name"]),
@@ -213,7 +229,7 @@ def _generate_single_fallback(
         entity_type=entity["type"],
         entity_source=entity["name"],
     )
-    return profile, {"input": response.input_tokens, "output": response.output_tokens}
+    return profile, tokens
 
 
 def _generate_batch(
@@ -329,7 +345,8 @@ def generate_profiles_batched(
                         model=model,
                         agent_id=len(profiles) + len(batch_profiles),
                     )
-                    batch_profiles.append(fallback_profile)
+                    if fallback_profile is not None:
+                        batch_profiles.append(fallback_profile)
                     tokens["input"] += fb_tokens["input"]
                     tokens["output"] += fb_tokens["output"]
 

@@ -68,7 +68,11 @@ def generate_config(
         thinking_budget=10000,
     )
 
-    data = json.loads(strip_code_fences(response.text))
+    try:
+        data = json.loads(strip_code_fences(response.text))
+    except json.JSONDecodeError as exc:
+        logger.error("Config generation returned invalid JSON: %s", response.text[:200])
+        raise ValueError("LLM returned invalid JSON for simulation config") from exc
 
     # Determine timing: user override (both or neither) or LLM with clamps
     if user_total_hours is not None and user_minutes_per_round is not None:

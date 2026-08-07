@@ -48,6 +48,14 @@ class TestStripCodeFences:
         text = '{"key": "value"}'
         assert strip_code_fences(text) == '{"key": "value"}'
 
+    def test_strips_thinking_block(self):
+        text = '<thinking>\nLet me think about this...\n</thinking>\n{"key": "value"}'
+        assert strip_code_fences(text) == '{"key": "value"}'
+
+    def test_strips_thinking_with_code_fence(self):
+        text = '<thinking>reasoning</thinking>\n```json\n{"key": "value"}\n```'
+        assert strip_code_fences(text) == '{"key": "value"}'
+
 
 class TestBuildPersonaPrompt:
     def test_includes_entity_info(self):
