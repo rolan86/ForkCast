@@ -3,6 +3,7 @@
 import dataclasses
 import json
 import logging
+import os
 import threading
 from pathlib import Path
 from typing import Any, Callable
@@ -43,7 +44,7 @@ def write_checkpoint(
     cp_path = sim_dir / "checkpoint.json"
     tmp_path = sim_dir / "checkpoint.json.tmp"
     tmp_path.write_text(json.dumps(checkpoint), encoding="utf-8")
-    tmp_path.rename(cp_path)
+    os.replace(tmp_path, cp_path)
 
     state_dict = state.to_dict()
     if dynamics is not None:
@@ -51,7 +52,7 @@ def write_checkpoint(
     state_path = sim_dir / f"sim_state_r{round_num}.json"
     state_tmp = sim_dir / f"sim_state_r{round_num}.json.tmp"
     state_tmp.write_text(json.dumps(state_dict), encoding="utf-8")
-    state_tmp.rename(state_path)
+    os.replace(state_tmp, state_path)
 
     # Clean up older state snapshots (keep only latest)
     for old in sim_dir.glob("sim_state_r*.json"):
@@ -129,8 +130,15 @@ def run_simulation(
     if max_rounds is not None:
         config.total_hours = max(1, (max_rounds * config.minutes_per_round) / 60)
 
+    # Simulation working directory. This must be defined before the dynamics block
+    # below, which calls read_checkpoint(sim_dir) on the resume path. It used to be
+    # assigned further down at the JSONL setup, so every run with circadian or
+    # engagement dynamics enabled raised UnboundLocalError before reaching it.
+    sim_dir = data_dir / simulation_id
+    sim_dir.mkdir(parents=True, exist_ok=True)
+
     # Load profiles
-    profiles_path = data_dir / simulation_id / "profiles" / "agents.json"
+    profiles_path = sim_dir / "profiles" / "agents.json"
     if not profiles_path.exists():
         raise FileNotFoundError(f"Profiles not found: {profiles_path}")
     profiles = [AgentProfile(**p) for p in json.loads(profiles_path.read_text(encoding="utf-8"))]
@@ -179,9 +187,7 @@ def run_simulation(
             (simulation_id,),
         )
 
-    # 2. Set up JSONL output
-    sim_dir = data_dir / simulation_id
-    sim_dir.mkdir(parents=True, exist_ok=True)
+    # 2. Set up JSONL output (sim_dir is created above, before the dynamics block)
     actions_path = sim_dir / "actions.jsonl"
     actions_file = open(actions_path, "w", encoding="utf-8")
     all_actions: list[Action] = []
