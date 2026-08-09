@@ -72,3 +72,12 @@ log/
 # Frontend
 frontend/node_modules/
 frontend/dist/
+
+# /brag render output. Multi-megabyte mp4s plus a Remotion composition scaffold
+# with its own node_modules. The videos are launch assets, not source; they get
+# uploaded to the platform directly and must never enter git history.
+# Moved out 2026-08-09 to dmello-advisory-hq (private), which is where launch
+# assets and their copy now live. These patterns stay as a guard so a future
+# /brag run cannot deposit marketing material back into a public repo.
+brag-output/
+brag-output-*/
